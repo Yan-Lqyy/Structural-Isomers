@@ -1,5 +1,6 @@
 import logging
 from typing import List, Dict, Optional, Tuple, Callable
+import urllib.parse
 
 from .pubchem_api import run_pubchem_search, BASE_URL
 
@@ -77,22 +78,27 @@ def find_candidates_by_structure(
     # Apply constraints one by one
     report_progress(f"Applying {len(constraints_dict)} structural constraint(s) sequentially...")
     num_constraints = len(constraints_dict)
-    constraint_items = list(constraints_dict.items()) # Ensure stable order for processing
+    constraint_items = list(constraints_dict.items()) 
 
     for i, (constraint_key, smarts_pattern) in enumerate(constraint_items):
         is_last_constraint = (i == num_constraints - 1)
-        report_progress(f"  Applying constraint {i+1}/{num_constraints}: '{constraint_key}' (SMARTS: {smarts_pattern[:30]}...)")
         
-        refine_url = f"{BASE_URL}/compound/fastsubstructure/smarts/{smarts_pattern}/cids/JSON"
+        # --- URL ENCODE THE SMARTS PATTERN ---
+        encoded_smarts_pattern = urllib.parse.quote(smarts_pattern)
+        # --------------------------------------
+
+        report_progress(f"  Applying constraint {i+1}/{num_constraints}: '{constraint_key}' (Original SMARTS: {smarts_pattern[:30]}...)")
+        
+        # Use the encoded SMARTS pattern in the URL
+        refine_url = f"{BASE_URL}/compound/fastsubstructure/smarts/{encoded_smarts_pattern}/cids/JSON"
         refine_params = {'cachekey': current_cachekey}
         
-        # For all but the last constraint, we want a new cachekey. For the last, we want the CIDs.
         expected_response_key = 'CID' if is_last_constraint else 'CacheKey'
         if not is_last_constraint:
             refine_params['list_return'] = 'cachekey'
 
         refine_data = run_pubchem_search(refine_url, params=refine_params)
-
+        
         if '_error_status' in refine_data:
             msg = refine_data.get('_error_message', f"Error during SMARTS refinement for '{constraint_key}'")
             report_progress(f"Constraint application failed for '{constraint_key}': {msg}")
