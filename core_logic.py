@@ -17,17 +17,18 @@ except ImportError:
     RDKIT_AVAILABLE = False
 
 # --- Setup Logging ---
-# Use basicConfig for simple module logging if not run as main app
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- Constants ---
 BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
-# Timeout for individual PubChem requests
 REQUEST_TIMEOUT = 120 # seconds
+# How many CIDs to request properties for in a single batch
+# PubChem might have limits, but often handles hundreds to thousands okay. Adjust if timeouts occur.
+SMILES_BATCH_SIZE = 500
 
 # --- SMARTS Library Data ---
-# (Keep the full SMARTS_LIBRARY_DATA dictionary here as provided in the previous step)
+# (Keep the full SMARTS_LIBRARY_DATA dictionary here as before)
 SMARTS_LIBRARY_DATA = {
     # Carbon Types
     'alkyl_carbon': {'name': 'Alkyl Carbon (sp3)', 'smarts': '[CX4]', 'category': 'Carbon Types', 'desc': 'Saturated carbon.'},
@@ -102,33 +103,26 @@ SMARTS_LIBRARY_DATA = {
     'phosphoric_ester': {'name': 'Phosphoric Ester Group', 'smarts': '[$(P(=[OX1])([OX2][#6])([$([OX2H]),$([OX1-]),$([OX2][#6])])[$([OX2H]),$([OX1-]),$([OX2][#6]),$([OX2]P)]),$([P+]([OX1-])([OX2][#6])([$([OX2H]),$([OX1-]),$([OX2][#6])])[$([OX2H]),$([OX1-]),$([OX2][#6]),$([OX2]P)])]', 'category': 'Phosphorus Groups', 'desc': 'Phosphate ester P-O-C bond.'},
 }
 
-
 # --- Helper to get categories ---
 def get_smarts_categories(library_data):
-    """Groups SMARTS library data by category for display."""
+    # (Keep implementation as before)
     categories = {}
     for key, data in library_data.items():
         cat = data.get('category', 'Uncategorized')
         if cat not in categories: categories[cat] = []
         categories[cat].append({
-            'key': key,
-            'name': data.get('name', key),
-            'desc': data.get('desc', '')
+            'key': key, 'name': data.get('name', key), 'desc': data.get('desc', '')
         })
-    # Sort categories alphabetically, then items within categories by key
-    sorted_categories = {cat: sorted(items, key=lambda x: x['key'])
-                         for cat, items in categories.items()}
+    sorted_categories = {cat: sorted(items, key=lambda x: x['key']) for cat, items in categories.items()}
     return dict(sorted(sorted_categories.items()))
 
-# --- API Call Helper (with retries) ---
+# --- API Call Helper (keep implementation with retries as before) ---
 def run_pubchem_search(url: str, params: Optional[Dict] = None, request_type: str = "GET", data: Optional[Dict] = None, retries: int = 2, delay: float = 2.0) -> Optional[Dict]:
-    """Runs a generic PubChem PUG REST request with retries for 5xx errors."""
-    headers = {'Accept': 'application/json', 'User-Agent': 'IsomerWebApp/1.0'} # Added User-Agent
+    # (Keep implementation with retries as before)
+    headers = {'Accept': 'application/json', 'User-Agent': 'IsomerWebApp/1.1'} # Increment version?
     last_exception = None
     last_status_code = None
-
     logger.debug(f"PubChem Request ({request_type}): {url} | Params: {params}")
-
     for attempt in range(retries + 1):
         try:
             if request_type.upper() == "GET":
@@ -139,193 +133,105 @@ def run_pubchem_search(url: str, params: Optional[Dict] = None, request_type: st
             else:
                  logger.error(f"Unsupported request type '{request_type}'")
                  return {'_error_status': 400, '_error_message': f"Internal Error: Unsupported request type '{request_type}'"}
-
             last_status_code = response.status_code
-            response.raise_for_status() # Check for HTTP errors
-
+            response.raise_for_status()
             result_data = response.json()
             logger.debug(f"PubChem request successful (Status: {last_status_code})")
-            return result_data # Success
-
-        except requests.exceptions.Timeout as e:
+            return result_data
+        except requests.exceptions.Timeout as e: # Handle specific exceptions
             last_exception = e
             logger.warning(f"PubChem request timed out (Attempt {attempt+1}/{retries+1}). URL: {url}")
-            if attempt < retries: time.sleep(delay * (1.5**attempt))
+            if attempt < retries: time.sleep(delay * (1.5**attempt)); continue
             else: break
-        except requests.exceptions.HTTPError as e:
+        except requests.exceptions.HTTPError as e: # Handle HTTP errors
             last_exception = e
-            if response is None: # Defensive check
-                 logger.error(f"HTTPError but response object is None (Attempt {attempt+1}/{retries+1})")
-                 if attempt < retries: time.sleep(delay * (1.5**attempt)); continue
-                 else: break
-
+            if response is None: break # Defensive check
             status_code = response.status_code
-            # Extract server message if possible
             server_error_message = f"PubChem API Error {status_code}"
-            try:
+            try: # Try getting detailed error from PubChem
                 error_details = response.json()
                 fault_msg = error_details.get('Fault', {}).get('Message')
                 details = error_details.get('Fault', {}).get('Details')
                 if fault_msg: server_error_message += f": {fault_msg}"
                 if details: server_error_message += f" ({'; '.join(details)})"
-            except json.JSONDecodeError:
-                 server_error_message += f". Response: {response.text[:200]}" # Show start of non-JSON response
-
-            if 500 <= status_code <= 599 and attempt < retries:
+            except json.JSONDecodeError: server_error_message += f". Response: {response.text[:200]}"
+            if 500 <= status_code <= 599 and attempt < retries: # Retry on 5xx
                  logger.warning(f"PubChem API returned HTTP {status_code} (Attempt {attempt+1}/{retries+1}). Retrying... URL: {url}")
-                 time.sleep(delay * (1.5**attempt))
-            else:
+                 time.sleep(delay * (1.5**attempt)); continue
+            else: # Non-retryable error or last attempt
                  logger.error(f"PubChem API returned non-retryable HTTP Error {status_code} for URL {url} (Final Attempt). Message: {server_error_message}")
                  return {'_error_status': status_code, '_error_message': server_error_message}
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError as e: # Handle JSON decoding errors
             last_exception = e
             if response and (not response.text or response.text.isspace()):
                  logger.warning(f"PubChem returned empty/whitespace response (Status: {last_status_code}). URL: {url}")
-                 return {} # OK, just no data
+                 return {} # OK, no data
             else:
                  logger.error(f"Failed to decode JSON response from PubChem for {url} (Attempt {attempt+1}/{retries+1}). Status: {last_status_code}. Response: {response.text[:200] if response else 'N/A'}")
                  return {'_error_status': 500, '_error_message': "Invalid JSON response from PubChem"}
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException as e: # Handle network errors
              last_exception = e
              logger.error(f"Network or request error occurred: {e} (Attempt {attempt+1}/{retries+1}). URL: {url}")
-             if attempt < retries: time.sleep(delay * (1.5**attempt))
+             if attempt < retries: time.sleep(delay * (1.5**attempt)); continue
              else: break
-        except Exception as e:
+        except Exception as e: # Handle any other unexpected errors
              last_exception = e
-             logger.exception(f"An unexpected error occurred during API call to {url} (Attempt {attempt+1}/{retries+1}).") # Use logger.exception
-             if attempt < retries: time.sleep(delay * (1.5**attempt))
+             logger.exception(f"An unexpected error occurred during API call to {url} (Attempt {attempt+1}/{retries+1}).")
+             if attempt < retries: time.sleep(delay * (1.5**attempt)); continue
              else: break
-
-    # If loop finishes without returning, all retries failed
+    # Fallback after all retries
     error_message = f"Request failed after {retries+1} attempts. Last status: {last_status_code}. Last error: {type(last_exception).__name__}"
     logger.error(f"{error_message} URL: {url}")
     return {'_error_status': last_status_code or 500, '_error_message': error_message}
 
 
-# --- Core Logic: Structure Search ---
+# --- Core Logic: Structure Search (implementation kept as before) ---
 def find_candidates_by_structure(formula: str, constraints_dict: Dict[str, str]) -> Tuple[Optional[List[int]], Optional[str]]:
-    """Finds candidate CIDs matching formula and structural constraints. Returns (cids, error_message)."""
+    # (Keep implementation as before - it calls run_pubchem_search)
     logger.info(f"Step 1: Searching PubChem for formula '{formula}'...")
     formula_url = f"{BASE_URL}/compound/fastformula/{formula}/cids/JSON"
     formula_params = {'list_return': 'cachekey'}
     formula_data = run_pubchem_search(formula_url, params=formula_params)
-
-    if '_error_status' in formula_data:
-        error_msg = formula_data.get('_error_message', 'Failed to connect to PubChem for formula search.')
-        logger.error(f"Formula search failed: {error_msg}")
-        return None, error_msg
-    if not formula_data or 'IdentifierList' not in formula_data or 'CacheKey' not in formula_data['IdentifierList'] or formula_data['IdentifierList'].get('Size', 0) == 0:
-        logger.info(f"Found 0 compounds matching formula '{formula}' or failed to get initial cachekey.")
-        return [], None # No candidates found
-
+    if '_error_status' in formula_data: return None, formula_data.get('_error_message')
+    if not formula_data or 'IdentifierList' not in formula_data or 'CacheKey' not in formula_data['IdentifierList'] or formula_data['IdentifierList'].get('Size', 0) == 0: return [], None
     current_cachekey = formula_data['IdentifierList']['CacheKey']
     initial_size = formula_data['IdentifierList']['Size']
     logger.info(f"Found initial set of {initial_size} compounds. CacheKey: {current_cachekey[:10]}...")
-
-    # Apply Structural Constraints
     if not constraints_dict:
-        logger.info("Step 2: No structural constraints. Retrieving all candidates from initial cachekey...")
-        final_cids_url = f"{BASE_URL}/compound/listkey/{current_cachekey}/cids/JSON" # Use listkey endpoint to retrieve from cachekey
-        final_cids_data = run_pubchem_search(final_cids_url) # No params needed
-
-        if '_error_status' in final_cids_data:
-            error_msg = final_cids_data.get('_error_message', 'Error retrieving candidate CIDs from cachekey.')
-            logger.error(error_msg)
-            return None, error_msg
-        elif final_cids_data and 'IdentifierList' in final_cids_data and 'CID' in final_cids_data['IdentifierList']:
-            cids = final_cids_data['IdentifierList']['CID']
-            logger.info(f"Retrieved {len(cids)} candidate CIDs.")
-            return cids, None
-        else:
-            logger.error(f"Unexpected structure retrieving CIDs from listkey {current_cachekey[:10]}. Data: {str(final_cids_data)[:200]}")
-            return None, "Error parsing candidate CIDs from cachekey."
-
+        logger.info("Step 2: No structural constraints. Retrieving all candidates...")
+        final_cids_url = f"{BASE_URL}/compound/listkey/{current_cachekey}/cids/JSON"
+        final_cids_data = run_pubchem_search(final_cids_url)
+        if '_error_status' in final_cids_data: return None, final_cids_data.get('_error_message')
+        if final_cids_data and 'IdentifierList' in final_cids_data and 'CID' in final_cids_data['IdentifierList']: return final_cids_data['IdentifierList']['CID'], None
+        else: return None, "Error parsing candidate CIDs from cachekey."
     logger.info("Step 2: Applying structural constraints...")
     num_constraints = len(constraints_dict)
     constraint_items = list(constraints_dict.items())
-
     for i, (key, smarts) in enumerate(constraint_items):
         is_last_constraint = (i == num_constraints - 1)
         logger.info(f"Applying constraint {i+1}/{num_constraints}: '{key}'...")
-
         refine_url = f"{BASE_URL}/compound/fastsubstructure/smarts/{smarts}/cids/JSON"
         refine_params = {'cachekey': current_cachekey}
-        if not is_last_constraint:
-            refine_params['list_return'] = 'cachekey'
-            expected_key = 'CacheKey'
-        else:
-            expected_key = 'CID'
-
+        if not is_last_constraint: refine_params['list_return'] = 'cachekey'; expected_key = 'CacheKey'
+        else: expected_key = 'CID'
         refine_data = run_pubchem_search(refine_url, params=refine_params)
-
-        if '_error_status' in refine_data:
-             error_msg = refine_data.get('_error_message', f'Error during refinement for constraint {key}.')
-             logger.error(error_msg)
-             return None, error_msg
-        if not refine_data or 'IdentifierList' not in refine_data:
-             error_msg = f"Unexpected response structure during refinement for '{key}'. Data: {str(refine_data)[:200]}"
-             logger.error(error_msg)
-             return None, error_msg
-
+        if '_error_status' in refine_data: return None, refine_data.get('_error_message')
+        if not refine_data or 'IdentifierList' not in refine_data: return None, f"Unexpected response during refinement for '{key}'."
         identifier_list = refine_data['IdentifierList']
         result = identifier_list.get(expected_key)
         size = identifier_list.get('Size', 0)
-
-        if result is None and size == 0:
-             logger.info(f"Constraint '{key}' resulted in 0 matches. No candidates remain.")
-             return [], None # No candidates left
-
-        if result is None:
-            error_msg = f"Failed to get expected result ({expected_key}) for constraint '{key}'. Data: {identifier_list}"
-            logger.error(error_msg)
-            return None, error_msg
-
-        if not is_last_constraint:
-            current_cachekey = result
-            logger.info(f"  {size} compounds remain. New CacheKey: {current_cachekey[:10]}...")
-        else:
-            candidate_cids = result
-            logger.info(f"Found {len(candidate_cids)} candidates matching all structural constraints.")
-            return candidate_cids, None
-
-    # Fallback
+        if result is None and size == 0: return [], None
+        if result is None: return None, f"Failed to get {expected_key} for '{key}'."
+        if not is_last_constraint: current_cachekey = result; logger.info(f"  {size} compounds remain. New CacheKey: {current_cachekey[:10]}...")
+        else: candidate_cids = result; logger.info(f"Found {len(candidate_cids)} candidates matching structure."); return candidate_cids, None
     return None, "Constraint application logic error."
 
 
-# --- NMR Prediction Functions ---
-def get_smiles_from_cid(cid: int) -> Optional[str]:
-    """Fetches the Isomeric or Canonical SMILES string."""
-    # Use the simpler run_pubchem_search but expect TXT, not JSON
-    # This needs adjustment or a separate simple request function
-    url_iso = f"{BASE_URL}/compound/cid/{cid}/property/IsomericSMILES/TXT"
-    url_canon = f"{BASE_URL}/compound/cid/{cid}/property/CanonicalSMILES/TXT"
-    smiles = None
-    try:
-        response = requests.get(url_iso, timeout=REQUEST_TIMEOUT/4, headers={'User-Agent': 'IsomerWebApp/1.0'})
-        response.raise_for_status()
-        smiles = response.text.strip()
-        if not smiles or smiles.lower() == 'n/a':
-            smiles = None # Reset if invalid
-    except requests.exceptions.RequestException:
-        pass # Try canonical if isomeric fails
-
-    if smiles is None:
-        try:
-            response = requests.get(url_canon, timeout=REQUEST_TIMEOUT/4, headers={'User-Agent': 'IsomerWebApp/1.0'})
-            response.raise_for_status()
-            smiles = response.text.strip()
-            if not smiles or smiles.lower() == 'n/a':
-                 logger.warning(f"Could not retrieve valid SMILES (Isomeric or Canonical) for CID {cid}.")
-                 return None
-        except requests.exceptions.RequestException:
-            logger.warning(f"Failed to retrieve any SMILES for CID {cid}.")
-            return None
-    return smiles
-
+# --- NMR Prediction Helpers (keep implementations as before) ---
 def get_hydrogen_environments(smiles_string: str) -> Tuple[Optional[int], Optional[Dict[int, int]]]:
-    """Determines unique H environments using RDKit."""
+    # (Keep implementation as before)
     if not RDKIT_AVAILABLE or not smiles_string: return None, None
-    try:
+    try: # Wrap RDKit calls in try/except
         mol = Chem.MolFromSmiles(smiles_string)
         if mol is None: return None, None
         mol_h = Chem.AddHs(mol)
@@ -337,18 +243,19 @@ def get_hydrogen_environments(smiles_string: str) -> Tuple[Optional[int], Option
         for atom in mol_h.GetAtoms():
             if atom.GetAtomicNum() == 1:
                 try: h_counts_by_rank[ranks[atom.GetIdx()]] += 1
-                except IndexError: continue # Should be rare
+                except IndexError: logger.warning(f"Index error getting rank for H in {smiles_string}"); continue
         num_signals = len(h_counts_by_rank)
         integration_counts_dict = dict(h_counts_by_rank)
         if has_hydrogens and num_signals == 0 and not integration_counts_dict:
             logger.warning(f"RDKit found 0 H environments for {smiles_string} despite H atoms present.")
-            return 0, {}
+            return 0, {} # Return 0 signals as calculated
         return num_signals, integration_counts_dict
-    except Exception as e:
+    except Exception as e: # Catch any RDKit-related errors
         logger.warning(f"RDKit error processing SMILES {smiles_string}: {e}")
         return None, None
 
 def gcd_list(numbers: List[int]) -> int:
+    # (Keep implementation as before)
     positive_numbers = [int(n) for n in numbers if n > 0]
     if not positive_numbers: return 1
     result = positive_numbers[0]
@@ -356,62 +263,156 @@ def gcd_list(numbers: List[int]) -> int:
     return result
 
 def calculate_predicted_ratio(integration_counts_dict: Optional[Dict[int, int]]) -> Optional[List[int]]:
+    # (Keep implementation as before)
     if not integration_counts_dict: return []
     counts = list(integration_counts_dict.values())
     if not counts: return []
     common_divisor = gcd_list(counts)
-    if common_divisor <= 0: return None
+    if common_divisor <= 0: logger.warning(f"Invalid GCD ({common_divisor}) calculated for counts: {counts}"); return None
     ratios = sorted([count // common_divisor for count in counts])
     return ratios
 
 def format_nmr_prediction(num_signals: Optional[int], integration_counts_dict: Optional[Dict[int, int]]) -> str:
-    """Formats NMR prediction string, used by fetch_compound_details."""
+    # (Keep implementation as before)
     if num_signals is None or integration_counts_dict is None: return "N/A (Error)"
     if num_signals == 0: return "0 Signals (No H)"
     counts = sorted(list(integration_counts_dict.values()), reverse=True)
     integration_str = ", ".join([f"{count}H" for count in counts])
     ratio_list = calculate_predicted_ratio(integration_counts_dict)
     ratio_str = ":".join(map(str, ratio_list)) if ratio_list is not None else "Error"
-    # Shorter format for web display within details
     return f"{num_signals} Signals; Ratio: {ratio_str} ({integration_str})"
 
+# --- *** NEW: Batch SMILES Fetching *** ---
+def fetch_smiles_batch(cids: List[int]) -> Tuple[Dict[int, str], Optional[str]]:
+    """
+    Fetches Isomeric (or fallback Canonical) SMILES for a list of CIDs in batches.
 
-# --- NMR Filtering Logic ---
+    Returns:
+        A dictionary mapping CID to its valid SMILES string.
+        An optional warning message string if some SMILES couldn't be fetched.
+    """
+    if not cids:
+        return {}, None
+
+    logger.info(f"Fetching SMILES for {len(cids)} CIDs in batches of {SMILES_BATCH_SIZE}...")
+    cid_smiles_map = {}
+    warnings = []
+    fetch_errors = 0
+
+    for i in range(0, len(cids), SMILES_BATCH_SIZE):
+        batch_cids = cids[i:i+SMILES_BATCH_SIZE]
+        cids_str = ','.join(map(str, batch_cids))
+        properties = "IsomericSMILES,CanonicalSMILES"
+        url = f"{BASE_URL}/compound/cid/{cids_str}/property/{properties}/JSON"
+        logger.debug(f"Fetching SMILES batch {i//SMILES_BATCH_SIZE + 1}...")
+
+        data = run_pubchem_search(url) # Use the robust search function
+
+        if data is None or '_error_status' in data:
+             error_msg = data.get('_error_message', f'API error fetching SMILES batch starting at index {i}.') if isinstance(data, dict) else 'Unknown API error'
+             logger.error(error_msg)
+             warnings.append(f"Failed to fetch SMILES batch starting at index {i}: {error_msg}")
+             fetch_errors += len(batch_cids) # Assume all in batch failed
+             continue # Skip to next batch
+
+        if 'PropertyTable' in data and 'Properties' in data['PropertyTable']:
+            props_found_in_batch = 0
+            for prop_entry in data['PropertyTable']['Properties']:
+                cid = prop_entry.get('CID')
+                if cid not in batch_cids: continue # Should not happen, but safety check
+
+                iso_smiles = prop_entry.get('IsomericSMILES')
+                can_smiles = prop_entry.get('CanonicalSMILES')
+                valid_smiles = None
+
+                if iso_smiles and iso_smiles.lower() != 'n/a':
+                    valid_smiles = iso_smiles
+                elif can_smiles and can_smiles.lower() != 'n/a':
+                    valid_smiles = can_smiles
+
+                if valid_smiles:
+                    cid_smiles_map[cid] = valid_smiles
+                    props_found_in_batch += 1
+                else:
+                    # Log only once per missing SMILES if verbose logging needed
+                    # logger.warning(f"No valid SMILES found for CID {cid} in batch.")
+                    pass # Silently skip CIDs without valid SMILES
+
+            # Check if we got properties for all requested CIDs in the batch
+            if props_found_in_batch < len(batch_cids):
+                 missing_count = len(batch_cids) - props_found_in_batch
+                 logger.warning(f"Missing properties/SMILES for {missing_count} CIDs in batch starting at index {i}.")
+                 # warnings.append(f"Missing properties for {missing_count} CIDs in batch {i//SMILES_BATCH_SIZE+1}")
+
+        else:
+            logger.warning(f"Unexpected response structure for SMILES batch starting at index {i}. Data: {str(data)[:200]}")
+            warnings.append(f"Unexpected response structure for SMILES batch {i//SMILES_BATCH_SIZE+1}")
+            fetch_errors += len(batch_cids)
+
+    num_missing = len(cids) - len(cid_smiles_map)
+    if num_missing > 0:
+        logger.warning(f"Could not retrieve valid SMILES for {num_missing} out of {len(cids)} CIDs.")
+        warnings.append(f"Failed to retrieve SMILES for {num_missing} CIDs")
+
+    warning_message = "; ".join(warnings) if warnings else None
+    logger.info(f"Finished fetching SMILES. Successfully retrieved for {len(cid_smiles_map)} CIDs.")
+    return cid_smiles_map, warning_message
+
+
+# --- *** UPDATED: NMR Filtering Logic *** ---
 def filter_candidates_by_nmr(
     candidate_cids: List[int],
     required_signals: Optional[int],
     required_ratio: Optional[List[int]]
 ) -> Tuple[List[int], Optional[str]]:
-    """Filters candidates by NMR. Returns (filtered_cids, warning_message)."""
+    """
+    Filters candidates by NMR using batch SMILES fetching.
+    Returns (filtered_cids, warning_message).
+    """
     if not RDKIT_AVAILABLE:
         return candidate_cids, "Skipping NMR filtering (RDKit not available)."
     if required_signals is None and required_ratio is None:
         return candidate_cids, None # No NMR constraints
 
-    logger.info(f"Step 3: Filtering {len(candidate_cids)} candidates by NMR constraints...")
+    if not candidate_cids:
+        return [], None # No candidates to filter
+
+    logger.info(f"Step 3a: Fetching SMILES for {len(candidate_cids)} candidates...")
+    start_smiles_time = time.time()
+    # *** Fetch SMILES in Batch ***
+    cid_smiles_map, smiles_warning = fetch_smiles_batch(candidate_cids)
+    end_smiles_time = time.time()
+    logger.info(f"SMILES fetching took {end_smiles_time - start_smiles_time:.2f}s.")
+
+    if not cid_smiles_map:
+        logger.warning("No valid SMILES obtained for any candidate CIDs. Cannot perform NMR filtering.")
+        return [], smiles_warning # Return empty list if no SMILES could be fetched
+
+    logger.info(f"Step 3b: Filtering {len(cid_smiles_map)} candidates with SMILES by NMR constraints...")
     final_cids = []
     processed_count = 0
-    skipped_smiles = 0
     skipped_nmr = 0
-    start_time = time.time()
+    start_filter_time = time.time()
 
-    for cid in candidate_cids:
+    # *** Process candidates for which we have SMILES ***
+    # Iterate through the map now, not the original list
+    for cid, smiles in cid_smiles_map.items():
         processed_count += 1
-        if processed_count % 200 == 0: # Log progress less often
-             elapsed = time.time() - start_time
-             logger.info(f"  NMR Filter Progress: {processed_count}/{len(candidate_cids)} ({elapsed:.1f}s)...")
-
-        smiles = get_smiles_from_cid(cid)
-        if not smiles: skipped_smiles += 1; continue
+        # Log progress less frequently for potentially faster local processing
+        if processed_count % 500 == 0:
+             elapsed = time.time() - start_filter_time
+             logger.info(f"  NMR Filter Progress: {processed_count}/{len(cid_smiles_map)} ({elapsed:.1f}s)...")
 
         num_signals, integrations_dict = get_hydrogen_environments(smiles)
-        if num_signals is None or integrations_dict is None: skipped_nmr += 1; continue
+        if num_signals is None or integrations_dict is None:
+            skipped_nmr += 1
+            continue # Skip if NMR prediction failed
 
         # Apply checks
         signal_match = (required_signals is None) or (num_signals == required_signals)
         if not signal_match: continue
 
-        ratio_match = True # Assume match if no ratio required
+        ratio_match = True
         if required_ratio is not None:
             predicted_ratio = calculate_predicted_ratio(integrations_dict)
             ratio_match = (predicted_ratio is not None and predicted_ratio == required_ratio)
@@ -420,30 +421,32 @@ def filter_candidates_by_nmr(
         # Passed all checks
         final_cids.append(cid)
 
-    end_time = time.time()
-    logger.info(f"NMR Filtering Complete in {end_time - start_time:.2f}s.")
-    warning_msg = None
-    warnings = []
-    if skipped_smiles > 0: warnings.append(f"skipped {skipped_smiles} due to SMILES errors")
-    if skipped_nmr > 0: warnings.append(f"skipped {skipped_nmr} due to NMR prediction errors")
-    if warnings: warning_msg = f"NMR Filtering Warnings: {'; '.join(warnings)}."
+    end_filter_time = time.time()
+    logger.info(f"NMR Filtering (RDKit processing) took {end_filter_time - start_filter_time:.2f}s.")
+
+    # Combine warnings
+    filter_warnings = []
+    if smiles_warning: filter_warnings.append(smiles_warning)
+    if skipped_nmr > 0: filter_warnings.append(f"skipped {skipped_nmr} due to NMR prediction errors")
+    final_warning_msg = "; ".join(filter_warnings) if filter_warnings else None
 
     logger.info(f"Found {len(final_cids)} compounds matching all criteria after NMR filter.")
-    return final_cids, warning_msg
+    # Preserve original order? If needed, filter the original list based on `final_cids` set.
+    # For now, return the filtered list directly.
+    return final_cids, final_warning_msg
 
-# --- Detail Fetching ---
+
+# --- Detail Fetching (implementation kept as before) ---
 def fetch_compound_details(
     cids: List[int],
     detail_image_width: int,
     detail_image_height: int
     ) -> Dict[int, Dict[str, Any]]:
-    """Fetches details for display. Now requires image dimensions."""
+    # (Keep implementation as before - it calls run_pubchem_search and format_nmr_prediction)
     if not cids: return {}
     logger.info(f"Fetching details for top {len(cids)} compound(s)...")
     compound_data = {cid: {} for cid in cids} # Pre-initialize
-
-    # Properties Fetch
-    properties_to_fetch = ["Title", "IUPACName", "IsomericSMILES", "InChI", "InChIKey"]
+    properties_to_fetch = ["Title", "IUPACName", "IsomericSMILES", "InChI", "InChIKey"] # Request SMILES again for details
     cids_str = ','.join(map(str, cids))
     props_url = f"{BASE_URL}/compound/cid/{cids_str}/property/{','.join(properties_to_fetch)}/JSON"
     props_data = run_pubchem_search(props_url)
@@ -451,12 +454,8 @@ def fetch_compound_details(
         for prop_entry in props_data['PropertyTable']['Properties']:
             cid = prop_entry.get('CID')
             if cid in compound_data: compound_data[cid].update(prop_entry)
-    elif '_error_status' in props_data:
-        logger.warning(f"Could not fetch properties: {props_data.get('_error_message')}")
-    else:
-        logger.warning("Could not parse properties response.")
-
-    # Description Fetch
+    elif '_error_status' in props_data: logger.warning(f"Could not fetch properties for details: {props_data.get('_error_message')}")
+    else: logger.warning("Could not parse properties response for details.")
     desc_url = f"{BASE_URL}/compound/cid/{cids_str}/description/JSON"
     desc_data = run_pubchem_search(desc_url)
     if desc_data and 'InformationList' in desc_data and 'Information' in desc_data['InformationList']:
@@ -465,24 +464,17 @@ def fetch_compound_details(
             for info in valid_descriptions:
                 cid = info.get('CID')
                 if cid in compound_data: compound_data[cid]['Description'] = info.get('Description')
-    elif '_error_status' in desc_data:
-        logger.warning(f"Could not fetch descriptions: {desc_data.get('_error_message')}")
-    # else: logger.warning("Could not parse descriptions response.") # Less verbose
-
-
-    # Add Links & Predict NMR for display
+    elif '_error_status' in desc_data: logger.warning(f"Could not fetch descriptions for details: {desc_data.get('_error_message')}")
     logger.info("Adding links and predicting NMR for detailed display...")
     for cid in cids:
         if cid in compound_data:
             compound_data[cid]['PubChemLink'] = f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}"
             compound_data[cid]['ImageLink'] = f"https://pubchem.ncbi.nlm.nih.gov/image/imagefly.cgi?cid={cid}&width={detail_image_width}&height={detail_image_height}"
-            # Re-fetch SMILES here if not guaranteed by property fetch? No, rely on props_data.
-            smiles = compound_data[cid].get('IsomericSMILES')
+            smiles = compound_data[cid].get('IsomericSMILES') # Use SMILES fetched for details
             if RDKIT_AVAILABLE and smiles:
                  signals, integrations = get_hydrogen_environments(smiles)
                  compound_data[cid]['PredictedNMR'] = format_nmr_prediction(signals, integrations)
             else:
                  compound_data[cid]['PredictedNMR'] = "N/A" if RDKIT_AVAILABLE else "N/A (RDKit Missing)"
-
     logger.info("Detail fetching complete.")
     return compound_data
