@@ -147,3 +147,29 @@ dl {
 dd {
     margin-left: 0; /* Override default browser margin */
 }
+
+.progress-log {
+    max-height: 300px; /* Limit height of progress log */
+    overflow-y: auto;   /* Add scrollbar */
+    font-size: 0.9rem;
+    border: 1px solid #dee2e6;
+    margin-top: 1rem;
+    background-color: #f8f9fa; /* Light background for log */
+}
+
+.progress-message {
+    padding: 0.4rem 0.8rem;
+    border-bottom: 1px solid #eee; /* Separator lines */
+}
+.progress-message:last-child {
+    border-bottom: none;
+}
+
+.progress-error {
+    font-weight: bold;
+}
+
+/* Adjust spacing if needed */
+#progress-container h4 {
+    margin-bottom: 0.5rem;
+}

@@ -2,20 +2,54 @@
 
 {% block title %}Search for Isomers{% endblock %}
 
+{% block head_extra %}
+<style>
+/* Optional styles for the progress log for better readability */
+.progress-log {
+    max-height: 350px; /* Slightly taller */
+    overflow-y: auto;   /* Add scrollbar */
+    font-size: 0.9rem;
+    border: 1px solid #dee2e6;
+    margin-top: 1rem;
+    background-color: #f8f9fa; /* Light background for log */
+    border-radius: 0.25rem;
+    line-height: 1.4; /* Improve readability */
+}
+
+.progress-message {
+    padding: 0.4rem 0.8rem;
+    border-bottom: 1px solid #eee; /* Separator lines */
+    white-space: pre-wrap; /* Allow wrapping within messages */
+    word-break: break-word; /* Break long words if needed */
+}
+.progress-message:last-child {
+    border-bottom: none;
+}
+
+/* Style for specific message types (using Bootstrap list-group-item variants) */
+.list-group-item-light { background-color: #fdfdfd; color: #555; } /* Lighter grey for detailed logs */
+.list-group-item-info { background-color: #e9ecef; color: #333;} /* Slightly darker for stream status */
+.list-group-item-warning { background-color: #fff3cd; color: #664d03;}
+.list-group-item-danger { background-color: #f8d7da; color: #58151c;}
+.list-group-item-success { background-color: #d1e7dd; color: #0f5132;}
+
+.progress-error { font-weight: bold; }
+/* Adjust spacing if needed */
+#progress-container h4 { margin-bottom: 0.5rem; }
+/* Ensure progress bar text is visible */
+.progress-bar { color: #fff; text-shadow: 1px 1px 1px rgba(0,0,0,0.4); }
+.bg-warning .progress-bar { color: #000; text-shadow: none;} /* Darker text on yellow */
+</style>
+{% endblock %}
+
 {% block content %}
 
-{% if error %}
-    <div class="alert alert-danger" role="alert">
-        <strong>Error:</strong> {{ error }}
-    </div>
-{% endif %}
-{% if warning %}
-    <div class="alert alert-warning" role="alert">
-        <strong>Warning:</strong> {{ warning }}
-    </div>
-{% endif %}
+{# Display potential errors/warnings if they were somehow present on the index page load #}
+{% if error %} <div class="alert alert-danger" role="alert"><strong>Error:</strong> {{ error }}</div> {% endif %}
+{% if warning %} <div class="alert alert-warning" role="alert"><strong>Warning:</strong> {{ warning }}</div> {% endif %}
 
-<form action="{{ url_for('search_results') }}" method="POST" id="search-form">
+{# --- The main search form --- #}
+<form action="#" method="POST" id="search-form">
     <h2>Search Criteria</h2>
 
     <div class="mb-3">
@@ -73,27 +107,219 @@
     <hr class="my-4">
 
     <div class="d-grid gap-2">
-        <button type="submit" class="btn btn-primary btn-lg">Search for Isomers</button>
+         <button type="submit" class="btn btn-primary btn-lg" id="search-button">Search for Isomers</button>
     </div>
 </form>
 
-<!-- Simple loading indicator -->
-<div id="loading" class="loading-indicator">
-   <div class="spinner-border" role="status">
-        <span class="visually-hidden">Loading...</span>
+{# --- Progress Update Area --- #}
+<div id="progress-container" style="display: none;" class="mt-4">
+    <h4>Search Progress:</h4>
+    <div class="progress mb-2" role="progressbar" aria-label="Search progress" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="height: 20px">
+      <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 2%">Connecting...</div>
     </div>
-    <p class="mt-2">Searching PubChem and processing results... This may take a moment.</p>
+    <ul id="progress-updates" class="list-group list-group-flush progress-log">
+        {# Progress messages will be added here by JS #}
+    </ul>
 </div>
 
 {% endblock %}
 
 {% block scripts_extra %}
 <script>
-    // Show loading indicator on form submission
-    document.getElementById('search-form').addEventListener('submit', function() {
-        document.getElementById('loading').style.display = 'block';
-        // Disable button to prevent double submission? Optional.
-         // this.querySelector('button[type="submit"]').disabled = true;
+    // Get references to elements
+    const searchForm = document.getElementById('search-form');
+    const searchButton = document.getElementById('search-button');
+    const progressContainer = document.getElementById('progress-container');
+    const progressBar = document.getElementById('progress-bar');
+    const progressUpdatesList = document.getElementById('progress-updates');
+
+    let eventSource = null; // To hold the EventSource object
+    let lastStepReported = 0; // Track steps for progress bar estimation
+
+    // Function to safely close existing EventSource connection
+    function closeEventSource() {
+        if (eventSource) {
+            console.log("Closing previous EventSource (readyState:", eventSource.readyState, ")");
+            eventSource.close();
+            eventSource = null; // Clear the reference
+        }
+    }
+
+    // Function to update progress bar (refined)
+    function updateProgressBar(step, type, message, count) {
+        lastStepReported = Math.max(lastStepReported, step); // Keep track of max step seen
+        progressBar.classList.remove('bg-success', 'bg-danger', 'bg-warning'); // Reset colors
+
+        let text = 'Processing...';
+        let percent = 5; // Default starting point
+        // Rough estimate based on steps - ADJUST estimatedTotalSteps AS NEEDED
+        const estimatedTotalSteps = 25; // Increase estimate if many log messages appear
+
+        if (type === 'start') {
+            text = 'Initiating...';
+            percent = 5;
+        } else if (type === 'complete') {
+            text = `Complete (${count ?? '?'} found)`;
+            percent = 100;
+            progressBar.classList.add('bg-success');
+            progressBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+        } else if (type === 'error') {
+            text = 'Error Occurred';
+            percent = 100;
+            progressBar.classList.add('bg-danger');
+            progressBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+        } else if (type === 'warning') {
+            text = `Warning (Step ${step})`;
+            percent = Math.min(98, Math.max(5, Math.round((step / estimatedTotalSteps) * 100)));
+            progressBar.classList.add('bg-warning');
+        } else { // log or status
+            text = `Processing... (Step ${step})`;
+            percent = Math.min(98, Math.max(5, Math.round((step / estimatedTotalSteps) * 100)));
+        }
+
+        progressBar.style.width = `${percent}%`;
+        progressBar.textContent = text;
+    }
+
+    // --- Form Submission Handler ---
+    searchForm.addEventListener('submit', function(event) {
+        event.preventDefault();
+        console.log("Form submitted. Preventing default and starting SSE.");
+        const formulaInput = document.getElementById('formula');
+        if (!formulaInput.value.trim()) { alert('Molecular formula is required.'); formulaInput.focus(); return; }
+
+        closeEventSource(); // Close any previous connection
+        lastStepReported = 0; // Reset step counter
+
+        // --- Reset UI ---
+        progressUpdatesList.innerHTML = '';
+        progressContainer.style.display = 'block';
+        searchButton.disabled = true;
+        searchButton.textContent = 'Searching...';
+        // Reset progress bar manually before first update
+        progressBar.style.width = '2%';
+        progressBar.textContent = 'Connecting...';
+        progressBar.classList.remove('bg-success', 'bg-danger', 'bg-warning');
+        progressBar.classList.add('progress-bar-striped', 'progress-bar-animated');
+
+
+        // --- Construct URL and Connect ---
+        const formData = new FormData(searchForm);
+        const params = new URLSearchParams(formData);
+        const streamUrl = `{{ url_for('search_stream') }}?${params.toString()}`;
+        console.log("Connecting to SSE stream at:", streamUrl);
+        eventSource = new EventSource(streamUrl);
+
+        // --- Handle Connection Opened Event ---
+        eventSource.onopen = function(e) {
+             console.log("SSE Connection Opened.");
+             updateProgressBar(0, 'open', 'Connected...'); // Update bar on open
+        }
+
+        // --- Handle Incoming Messages ---
+        eventSource.onmessage = function(e) {
+            // *MUST* Log here to see if messages arrive on the client at all
+            console.log("SSE message received:", e.data);
+            try {
+                const data = JSON.parse(e.data);
+                const message = data.message || '(empty message)';
+                const type = data.type || 'log';
+                const step = data.step || 0;
+
+                // Add message to the log list
+                const listItem = document.createElement('li');
+                listItem.classList.add('list-group-item', 'progress-message');
+                listItem.textContent = message;
+                // Apply specific class based on type for styling
+                listItem.classList.remove('list-group-item-light', 'list-group-item-info', 'list-group-item-warning', 'list-group-item-success', 'list-group-item-danger');
+                listItem.classList.add(`list-group-item-${type === 'log' ? 'light' : type === 'status' ? 'info' : type === 'start' ? 'info' : type}`); // Map type to bootstrap class
+                if (type === 'error' || type === 'complete') listItem.classList.add('fw-bold');
+
+                progressUpdatesList.appendChild(listItem);
+                progressUpdatesList.scrollTop = progressUpdatesList.scrollHeight; // Auto-scroll
+
+                // Update the progress bar based on the message received
+                updateProgressBar(step, type, message, data.count);
+
+                // Handle server-sent errors immediately if received via standard message
+                 if (type === 'error') {
+                    console.error("Server reported error in message:", message);
+                    closeEventSource();
+                    searchButton.disabled = false;
+                    searchButton.textContent = 'Search Again';
+                }
+
+            } catch (error) {
+                console.error("Error parsing SSE JSON:", error, "Raw data:", e.data);
+                const listItem = document.createElement('li');
+                listItem.classList.add('list-group-item', 'list-group-item-danger');
+                listItem.textContent = `Received unparseable data: ${e.data}`;
+                progressUpdatesList.appendChild(listItem);
+                progressUpdatesList.scrollTop = progressUpdatesList.scrollHeight;
+            }
+        };
+
+        // --- Handle Custom 'completion' Event ---
+        eventSource.addEventListener('completion', function(e) {
+            console.log("SSE 'completion' event received:", e.data);
+             try {
+                 const data = JSON.parse(e.data);
+                 // Ensure final progress bar state reflects completion
+                 updateProgressBar(lastStepReported + 1, 'complete', 'Redirecting...', data.count);
+
+                 if (data.type === 'redirect' && data.url) {
+                     console.log("Redirecting to:", data.url);
+                     setTimeout(() => { window.location.href = data.url; }, 500);
+                 } else {
+                     console.warn("Completion event received without valid redirect URL:", data);
+                     updateProgressBar(lastStepReported + 1, 'warning', 'Finished (Redirect Failed)'); // Show warning on bar
+                     searchButton.disabled = false; searchButton.textContent = 'Search Again';
+                 }
+             } catch (error) {
+                 console.error("Error parsing completion event data:", error);
+                 updateProgressBar(lastStepReported + 1, 'warning', 'Finished (Completion Error)'); // Show warning on bar
+                 searchButton.disabled = false; searchButton.textContent = 'Search Again';
+             } finally {
+                 closeEventSource(); // Close connection after handling completion
+             }
+        });
+
+        // --- Handle General Errors (Network, etc.) ---
+        eventSource.onerror = function(e) {
+             console.error("EventSource error event:", e);
+             // Check readyState: 0=Connecting, 1=Open, 2=Closed
+             const currentState = eventSource ? eventSource.readyState : 2; // Assume closed if undefined
+
+             // Avoid showing error if connection closed normally AFTER completion/error shown
+             if (currentState === EventSource.CLOSED && (progressBar.classList.contains('bg-success') || progressBar.classList.contains('bg-danger'))) {
+                 console.log("EventSource onerror: Connection closed after completion/error state reached. Ignoring.");
+                 return;
+             }
+
+            const listItem = document.createElement('li');
+            listItem.classList.add('list-group-item', 'list-group-item-danger', 'progress-error', 'fw-bold');
+
+            if (currentState === EventSource.CONNECTING) {
+                 listItem.textContent = "Connection attempt failed. Check server and network.";
+            } else if (currentState === EventSource.CLOSED) {
+                listItem.textContent = "Search stream closed unexpectedly before completion.";
+                updateProgressBar(lastStepReported, 'warning', 'Connection Closed'); // Show warning bar
+            } else { // Likely OPEN, but an error occurred
+                 listItem.textContent = "A connection error occurred. Progress updates stopped.";
+                 updateProgressBar(lastStepReported, 'error', 'Connection Error'); // Show error bar
+            }
+
+            progressUpdatesList.appendChild(listItem);
+            progressUpdatesList.scrollTop = progressUpdatesList.scrollHeight;
+
+            closeEventSource(); // Clean up
+            searchButton.disabled = false;
+            searchButton.textContent = 'Search (Error Occurred)';
+        };
     });
+
+    // Close EventSource if user navigates away
+    window.addEventListener('beforeunload', closeEventSource);
+
 </script>
 {% endblock %}
