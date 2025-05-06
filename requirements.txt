@@ -1,0 +1,21 @@
+# Flask and Web Server
+Flask>=2.0.0,<4.0.0
+gevent>=21.0.0,<25.0.0 # For the WSGI server and SSE
+
+# HTTP Requests
+requests>=2.25.0,<3.0.0
+
+# Cheminformatics (Optional, but needed for NMR features)
+# RDKit installation is typically more complex than a simple pip install
+rdkit
+
+# Other (implicitly used by Flask/Jinja2, but good to list if you have specific needs)
+Jinja2>=3.0.0,<4.0.0
+Werkzeug>=2.0.0,<4.0.0 # For Flask's development server and utilities
+itsdangerous>=2.0.0,<3.0.0 # For secure session management in Flask
+
+# For URL encoding (standard library, but good to remember it's used)
+# urllib.parse # No need to list standard library modules
+
+# For JSON processing (standard library)
+# json # No need to list standard library modules
