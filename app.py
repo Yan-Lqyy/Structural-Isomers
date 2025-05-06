@@ -457,6 +457,10 @@ def fetch_batch_details_ajax():
         # The fetch_compound_details returns a dict {cid: details_dict}.
         # We might want to return it as a list of dicts in the order requested,
         # or ensure client side can handle dict. For simplicity, returning dict.
+
+        # Prevent overloading server
+        time.sleep(1) # Throttle requests to avoid overwhelming the server
+        
         return jsonify(details)
     except Exception as e:
         app.logger.exception(f"Error in /fetch-batch-details for CIDs {cids_to_fetch[:5]}:")

@@ -120,7 +120,9 @@
 {% if total_found > 0 and initial_display_count < total_found %} {# Only include script if load more is possible #}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const allCidsFromServer = JSON.parse({{ all_cids_json|safe }});
+    // Ensure all_cids_json is treated as a string literal for JSON.parse
+    const jsonStringFromServer = '{{ all_cids_json|safe }}'; // Wrap in quotes
+    const allCidsFromServer = JSON.parse(jsonStringFromServer);
     let currentlyDisplayedCount = {{ initial_display_count }};
     const totalFound = {{ total_found }};
     const batchSize = {{ load_more_batch_size }};
@@ -145,6 +147,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
     loadMoreButton.addEventListener('click', async function() {
+        console.log("Load More button clicked!");
         loadMoreButton.disabled = true;
         loadingIndicator.style.display = 'block';
 
@@ -233,7 +236,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const molWeight = escapeHtml(details.MolecularWeight);
         const iupacName = escapeHtml(details.IUPACName);
         const smiles = escapeHtml(details.IsomericSMILES || details.CanonicalSMILES || 'N/A');
-        constinchiKey = escapeHtml(details.InChIKey);
+        const inchiKey = escapeHtml(details.InChIKey);
         const predictedNMR = escapeHtml(details.PredictedNMR);
         let descriptionHtml = '';
         if (details.Description) {
