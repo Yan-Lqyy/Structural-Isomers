@@ -6,7 +6,6 @@ import time
 import math
 import logging
 from collections import Counter
-# *** Ensure Callable is imported ***
 from typing import List, Dict, Optional, Any, Tuple, Callable
 
 # --- RDKit Import ---
@@ -18,13 +17,12 @@ except ImportError:
     RDKIT_AVAILABLE = False
 
 # --- Setup Logging ---
-# Match app.py level or set independently. DEBUG is good for development.
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- Constants ---
 BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
-REQUEST_TIMEOUT = 120 # seconds
+REQUEST_TIMEOUT = 120
 SMILES_BATCH_SIZE = 500
 
 # --- SMARTS Library Data ---
@@ -113,14 +111,12 @@ def get_smarts_categories(library_data):
             'key': key, 'name': data.get('name', key), 'desc': data.get('desc', '')
         })
     for cat in categories:
-        categories[cat].sort(key=lambda x: x['name']) # Sort items within category by name
-    # Sort categories themselves by name
+        categories[cat].sort(key=lambda x: x['name'])
     return dict(sorted(categories.items()))
 
 # --- API Call Helper ---
 def run_pubchem_search(url: str, params: Optional[Dict] = None, request_type: str = "GET", data: Optional[Dict] = None, retries: int = 2, delay: float = 2.0) -> Optional[Dict]:
-    """Makes request to PubChem PUG REST API with retries and error handling."""
-    headers = {'Accept': 'application/json', 'User-Agent': 'IsomerWebApp/1.2'} # Update version?
+    headers = {'Accept': 'application/json', 'User-Agent': 'IsomerWebApp/1.2'}
     last_exception = None
     last_status_code = None
     logger.debug(f"PubChem Request ({request_type}): {url} | Params: {params}")
@@ -134,7 +130,7 @@ def run_pubchem_search(url: str, params: Optional[Dict] = None, request_type: st
             else:
                  logger.error(f"Unsupported request type '{request_type}'")
                  return {'_error_status': 400, '_error_message': f"Internal Error: Unsupported request type '{request_type}'"}
-
+            
             last_status_code = response.status_code
             response.raise_for_status() # Raises HTTPError for 4xx/5xx responses
             result_data = response.json()
@@ -148,34 +144,48 @@ def run_pubchem_search(url: str, params: Optional[Dict] = None, request_type: st
             last_exception = e
             status_code = response.status_code
             server_error_message = f"PubChem API Error {status_code}"
+            
+            # *** CORRECTED SECTION ***
+            fault_msg = None  # Initialize to None
+            details = None    # Initialize to None
             try: # Try getting detailed error from PubChem JSON response
                 error_details = response.json()
                 fault_msg = error_details.get('Fault', {}).get('Message')
-                details = error_details.get('Fault', {}).get('Details')
-                if fault_msg: server_error_message += f": {fault_msg}"
-                if details: server_error_message += f" ({'; '.join(details)})"
-            except json.JSONDecodeError: server_error_message += f". Response: {response.text[:200]}" # Show partial text if not JSON
-            except Exception: pass # Ignore errors getting more details
+                details_list = error_details.get('Fault', {}).get('Details') # Get list first
+                if isinstance(details_list, list): # Ensure it's a list before joining
+                    details = '; '.join(details_list) 
+                elif isinstance(details_list, str): # Handle if it's already a string
+                    details = details_list
+
+            except json.JSONDecodeError: # Be more specific with the exception
+                logger.warning(f"Could not decode JSON error response from PubChem. Status: {status_code}. Response text: {response.text[:200]}")
+            except Exception as inner_ex: # Catch other potential errors during detail parsing
+                logger.warning(f"Error parsing PubChem error details: {inner_ex}")
+            
+            if fault_msg: 
+                server_error_message += f": {fault_msg}"
+            if details: 
+                server_error_message += f" ({details})" # details is now a string or None
+            # *** END OF CORRECTED SECTION ***
+
             if 500 <= status_code <= 599 and attempt < retries: # Retry on 5xx server errors
                  logger.warning(f"PubChem API returned HTTP {status_code} (Attempt {attempt+1}/{retries+1}). Retrying... URL: {url}")
             else: # Non-retryable error (4xx) or last attempt failed
                  logger.error(f"PubChem API returned non-retryable HTTP Error {status_code} for URL {url} (Final Attempt). Message: {server_error_message}")
                  return {'_error_status': status_code, '_error_message': server_error_message}
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError as e: # This handles JSON errors for SUCCESSFUL (2xx) responses that aren't JSON
             last_exception = e
             logger.error(f"Failed to decode JSON response from PubChem for {url} (Attempt {attempt+1}/{retries+1}). Status: {last_status_code}. Response: {response.text[:200] if response else 'N/A'}")
-            # Treat as internal error as we expect JSON
-            return {'_error_status': 500, '_error_message': "Invalid JSON response from PubChem"}
+            return {'_error_status': 500, '_error_message': "Invalid JSON response from PubChem (expected success but got non-JSON)"}
         except requests.exceptions.RequestException as e:
              last_exception = e
              logger.error(f"Network or request error occurred: {e} (Attempt {attempt+1}/{retries+1}). URL: {url}")
         except Exception as e: # Catch any other unexpected errors
              last_exception = e
-             logger.exception(f"An unexpected error occurred during API call to {url} (Attempt {attempt+1}/{retries+1}).") # Log full trace for unexpected
+             logger.exception(f"An unexpected error occurred during API call to {url} (Attempt {attempt+1}/{retries+1}).")
 
-        # If we are here, an error occurred and we might retry
         if attempt < retries:
-            calculated_delay = delay * (1.5**attempt) # Exponential backoff
+            calculated_delay = delay * (1.5**attempt)
             logger.info(f"Waiting {calculated_delay:.2f}s before retry...")
             time.sleep(calculated_delay)
         else:
@@ -183,29 +193,34 @@ def run_pubchem_search(url: str, params: Optional[Dict] = None, request_type: st
 
     # Fallback after all retries failed
     error_message = f"Request failed after {retries+1} attempts. Last status: {last_status_code}. Last error: {type(last_exception).__name__ if last_exception else 'N/A'}"
+    if last_exception and hasattr(last_exception, 'args') and last_exception.args:
+        error_message += f" ({str(last_exception.args[0])[:100]})" # Add part of the exception message
     logger.error(f"{error_message} URL: {url}")
     return {'_error_status': last_status_code or 500, '_error_message': error_message}
 
-
-# --- Structure Search Function (Depends only on run_pubchem_search) ---
+# --- Structure Search Function ---
 def find_candidates_by_structure(
     formula: str,
     constraints_dict: Dict[str, str],
-    # *** ADD progress_callback argument ***
     progress_callback: Optional[Callable[[str], None]] = None
 ) -> Tuple[Optional[List[int]], Optional[str]]:
     """
     Finds candidate CIDs by formula and structural constraints, reporting progress.
+    (FCS) = Find Candidates by Structure
     """
+    # *** DEBUGGING: report_progress for find_candidates_by_structure ***
     def report_progress(message: str):
-        """Helper to log and call callback if available."""
-        logger.info(message) # Log the message regardless
+        logger.info(f"CORE_LOGIC (FCS): {message}")
+        print(f"CORE_LOGIC PRINT (FCS): progress_callback is {'SET' if progress_callback else 'NOT SET'}")
         if progress_callback:
+            print(f"CORE_LOGIC PRINT (FCS): CALLING progress_callback with: {message[:100]}...") # Truncate for console
             try:
-                progress_callback(message) # Send to client via callback
+                progress_callback(message)
             except Exception as e:
-                 # Log error in callback but don't stop the search process
-                 logger.warning(f"Progress callback failed for message '{message[:50]}...': {e}")
+                 logger.warning(f"Progress callback failed for message (FCS) '{message[:50]}...': {e}")
+                 print(f"CORE_LOGIC PRINT (FCS): progress_callback FAILED: {e}")
+        else:
+            print(f"CORE_LOGIC PRINT (FCS): progress_callback SKIPPED for: {message[:100]}...") # Truncate
 
     report_progress(f"Starting structure search for formula: '{formula}'")
     formula_url = f"{BASE_URL}/compound/fastformula/{formula}/cids/JSON"
@@ -214,11 +229,11 @@ def find_candidates_by_structure(
 
     if '_error_status' in formula_data:
         msg = formula_data.get('_error_message', 'Unknown error during formula search')
-        report_progress(f"Formula search failed: {msg}") # Report failure via callback too
+        report_progress(f"Formula search failed: {msg}")
         return None, msg
     if not formula_data or 'IdentifierList' not in formula_data or 'CacheKey' not in formula_data['IdentifierList'] or formula_data['IdentifierList'].get('Size', 0) == 0:
         report_progress(f"No compounds found matching formula '{formula}'.")
-        return [], None # Return empty list, no error message needed
+        return [], None
 
     current_cachekey = formula_data['IdentifierList']['CacheKey']
     initial_size = formula_data['IdentifierList']['Size']
@@ -248,61 +263,31 @@ def find_candidates_by_structure(
     for i, (key, smarts) in enumerate(constraint_items):
         is_last_constraint = (i == num_constraints - 1)
         report_progress(f"  Applying constraint {i+1}/{num_constraints}: '{key}'...")
-
         refine_url = f"{BASE_URL}/compound/fastsubstructure/smarts/{smarts}/cids/JSON"
         refine_params = {'cachekey': current_cachekey}
         if not is_last_constraint:
-            refine_params['list_return'] = 'cachekey'
-            expected_key = 'CacheKey'
+            refine_params['list_return'] = 'cachekey'; expected_key = 'CacheKey'
         else:
-            expected_key = 'CID' # Final step returns CIDs
-
-        # Make the API call
+            expected_key = 'CID'
         refine_data = run_pubchem_search(refine_url, params=refine_params)
-
-        # Handle API call errors
         if '_error_status' in refine_data:
-            msg = refine_data.get('_error_message', f"Error during refinement for '{key}'")
-            report_progress(f"Constraint application failed: {msg}")
-            return None, msg
+            msg = refine_data.get('_error_message', f"Error during refinement for '{key}'"); report_progress(f"Constraint application failed: {msg}"); return None, msg
         if not refine_data or 'IdentifierList' not in refine_data:
-            msg = f"Unexpected empty response during refinement for '{key}'."
-            report_progress(msg)
-            return None, msg
-
-        # Process successful response
-        identifier_list = refine_data['IdentifierList']
-        result = identifier_list.get(expected_key)
-        size = identifier_list.get('Size', 0)
-
+            msg = f"Unexpected empty response during refinement for '{key}'"; report_progress(msg); return None, msg
+        identifier_list = refine_data['IdentifierList']; result = identifier_list.get(expected_key); size = identifier_list.get('Size', 0)
         if result is None and size == 0:
-            report_progress(f"Constraint '{key}' yielded 0 results. No compounds match all constraints.")
-            return [], None # Found zero matching all constraints, return empty list
+            report_progress(f"Constraint '{key}' yielded 0 results. No compounds match all constraints."); return [], None
         if result is None:
-            # This case means size > 0 but the expected key (CacheKey/CID) is missing - unexpected
-            msg = f"Failed to get expected result ('{expected_key}') for constraint '{key}', though size reported as {size}."
-            report_progress(msg)
-            return None, msg
-
-        # Update state for next loop or return final results
+            msg = f"Failed to get '{expected_key}' for '{key}', size reported as {size}."; report_progress(msg); return None, msg
         if not is_last_constraint:
-            current_cachekey = result
-            report_progress(f"  Constraint '{key}' matched. {size} compounds remaining. (CacheKey: {current_cachekey[:10]}...)")
+            current_cachekey = result; report_progress(f"  Constraint '{key}' matched. {size} compounds remaining. (CacheKey: {current_cachekey[:10]}...)")
         else:
-            candidate_cids = result
-            report_progress(f"Finished structural filtering. Found {len(candidate_cids)} candidate(s).")
-            return candidate_cids, None
-
-    # Should not be reached if constraints exist
-    msg = "Constraint application logic error (unexpected end of loop)."
-    report_progress(msg)
-    return None, msg
+            candidate_cids = result; report_progress(f"Finished structural filtering. Found {len(candidate_cids)} candidate(s)."); return candidate_cids, None
+    msg = "Constraint application logic error (unexpected end of loop)."; report_progress(msg); return None, msg
 
 
-# *** >>> MOVE NMR HELPER FUNCTIONS HERE <<< ***
 # --- NMR Prediction Helpers ---
 def get_hydrogen_environments(smiles_string: str) -> Tuple[Optional[int], Optional[Dict[int, int]]]:
-    """Calculates number of signals and integration counts from SMILES using RDKit."""
     if not RDKIT_AVAILABLE or not smiles_string:
         if RDKIT_AVAILABLE and not smiles_string: logger.warning("get_hydrogen_environments called with empty SMILES.")
         return None, None
@@ -311,32 +296,21 @@ def get_hydrogen_environments(smiles_string: str) -> Tuple[Optional[int], Option
         if mol is None: logger.debug(f"RDKit failed to parse SMILES: {smiles_string}"); return None, None
         mol_h = Chem.AddHs(mol)
         if mol_h is None: logger.warning(f"RDKit failed to add Hydrogens to SMILES: {smiles_string}"); return None, None
-
         has_hydrogens = any(atom.GetAtomicNum() == 1 for atom in mol_h.GetAtoms())
         if not has_hydrogens: logger.debug(f"No hydrogens found in: {smiles_string}"); return 0, {}
-
-        ranks = list(Chem.CanonicalRankAtoms(mol_h, breakTies=False))
-        h_counts_by_rank = Counter()
+        ranks = list(Chem.CanonicalRankAtoms(mol_h, breakTies=False)); h_counts_by_rank = Counter()
         for atom in mol_h.GetAtoms():
             if atom.GetAtomicNum() == 1:
                 try: h_counts_by_rank[ranks[atom.GetIdx()]] += 1
                 except IndexError: logger.warning(f"Index error H rank {atom.GetIdx()} in {smiles_string}"); continue
-
-        num_signals = len(h_counts_by_rank)
-        integration_counts_dict = dict(h_counts_by_rank)
+        num_signals = len(h_counts_by_rank); integration_counts_dict = dict(h_counts_by_rank)
         if has_hydrogens and num_signals == 0: logger.warning(f"RDKit found 0 H environments for {smiles_string} despite H present.")
-
-        # *** Make NMR log message more CONCISE ***
         logger.debug(f"NMR Prediction for {smiles_string[:30]}... : Found {num_signals} signal(s)")
-        # logger.debug(f"SMILES {smiles_string}: Found {num_signals} signals, Integrations: {integration_counts_dict}") # Old verbose log
         return num_signals, integration_counts_dict
-
     except Exception as e:
-        logger.warning(f"RDKit error processing SMILES '{smiles_string}': {e}", exc_info=False)
-        return None, None
+        logger.warning(f"RDKit error processing SMILES '{smiles_string}': {e}", exc_info=False); return None, None
 
 def gcd_list(numbers: List[int]) -> int:
-    """Calculates the greatest common divisor of a list of integers."""
     positive_numbers = [int(n) for n in numbers if n > 0]
     if not positive_numbers: return 1
     if len(positive_numbers) == 1: return positive_numbers[0]
@@ -345,7 +319,6 @@ def gcd_list(numbers: List[int]) -> int:
     return result if result > 0 else 1
 
 def calculate_predicted_ratio(integration_counts_dict: Optional[Dict[int, int]]) -> Optional[List[int]]:
-    """Calculates the simplified NMR ratio from integration counts."""
     if integration_counts_dict is None: return None
     if not integration_counts_dict: return []
     counts = list(integration_counts_dict.values())
@@ -359,7 +332,6 @@ def calculate_predicted_ratio(integration_counts_dict: Optional[Dict[int, int]])
     return ratios
 
 def format_nmr_prediction(num_signals: Optional[int], integration_counts_dict: Optional[Dict[int, int]]) -> str:
-    """Formats the predicted NMR data into a user-friendly string for display."""
     if num_signals is None: return "N/A (Prediction Error)"
     if num_signals == 0: return "0 Signals (No Equivalent H Expected)"
     integration_str = "N/A"
@@ -370,252 +342,182 @@ def format_nmr_prediction(num_signals: Optional[int], integration_counts_dict: O
     ratio_str = "N/A"
     if ratio_list is None: ratio_str = "Error"
     elif ratio_list: ratio_str = ":".join(map(str, ratio_list))
-    # Return string for display on results page
     return f"{num_signals} Signals; Ratio: {ratio_str} ({integration_str})"
-# *** >>> END OF MOVED NMR HELPER FUNCTIONS <<< ***
 
 
-# --- Batch SMILES Fetching (Depends on run_pubchem_search) ---
+# --- Batch SMILES Fetching ---
 def fetch_smiles_batch(
     cids: List[int],
-    # *** ADD progress_callback argument ***
     progress_callback: Optional[Callable[[str], None]] = None
 ) -> Tuple[Dict[int, str], Optional[str]]:
     """
     Fetches Isomeric (or fallback Canonical) SMILES for a list of CIDs in batches, reporting progress.
+    (FSB) = Fetch SMILES Batch
     """
+    # *** DEBUGGING: report_progress for fetch_smiles_batch ***
     def report_progress(message: str):
-        """Helper to log and call callback if available."""
-        logger.info(message)
+        logger.info(f"CORE_LOGIC (FSB): {message}")
+        print(f"CORE_LOGIC PRINT (FSB): progress_callback is {'SET' if progress_callback else 'NOT SET'}")
         if progress_callback:
-            try: progress_callback(message)
-            except Exception as e: logger.warning(f"Progress callback failed: {e}")
+            print(f"CORE_LOGIC PRINT (FSB): CALLING progress_callback with: {message[:100]}...") # Truncate
+            try:
+                progress_callback(message)
+            except Exception as e:
+                 logger.warning(f"Progress callback failed for message (FSB) '{message[:50]}...': {e}")
+                 print(f"CORE_LOGIC PRINT (FSB): progress_callback FAILED: {e}")
+        else:
+            print(f"CORE_LOGIC PRINT (FSB): progress_callback SKIPPED for: {message[:100]}...") # Truncate
 
     if not cids: return {}, None
-
     report_progress(f"Fetching SMILES for {len(cids)} CIDs (Batch size: {SMILES_BATCH_SIZE})...")
-    cid_smiles_map = {}
-    warnings = []
-    fetch_errors = 0
+    cid_smiles_map = {}; warnings = []; fetch_errors = 0
     total_batches = (len(cids) + SMILES_BATCH_SIZE - 1) // SMILES_BATCH_SIZE
-
     for i in range(0, len(cids), SMILES_BATCH_SIZE):
-        batch_num = i // SMILES_BATCH_SIZE + 1
-        batch_cids = cids[i:i+SMILES_BATCH_SIZE]
-        cids_str = ','.join(map(str, batch_cids))
-        properties = "IsomericSMILES,CanonicalSMILES"
+        batch_num = i // SMILES_BATCH_SIZE + 1; batch_cids = cids[i:i+SMILES_BATCH_SIZE]
+        cids_str = ','.join(map(str, batch_cids)); properties = "IsomericSMILES,CanonicalSMILES"
         url = f"{BASE_URL}/compound/cid/{cids_str}/property/{properties}/JSON"
-        # Report progress less verbosely for many batches
         if batch_num % 5 == 1 or batch_num == total_batches or total_batches <= 5 :
              report_progress(f"  Fetching SMILES batch {batch_num}/{total_batches}...")
-
         data = run_pubchem_search(url)
-
         if data is None or '_error_status' in data:
              error_msg = data.get('_error_message', f'API error fetching SMILES batch {batch_num}.') if isinstance(data, dict) else 'Unknown API error'
-             logger.error(error_msg) # Log error internally
-             # Don't report API errors via progress callback, keep log cleaner
-             warnings.append(f"Failed to fetch SMILES batch {batch_num}")
-             fetch_errors += len(batch_cids)
-             continue
-
+             logger.error(error_msg); warnings.append(f"Failed to fetch SMILES batch {batch_num}"); fetch_errors += len(batch_cids); continue
         if 'PropertyTable' in data and 'Properties' in data['PropertyTable']:
             props_found_in_batch = 0
             for prop_entry in data['PropertyTable']['Properties']:
-                cid = prop_entry.get('CID')
-                if cid not in batch_cids: continue # Safety check
-                iso_smiles = prop_entry.get('IsomericSMILES')
-                can_smiles = prop_entry.get('CanonicalSMILES')
+                cid_val = prop_entry.get('CID') # Renamed to avoid conflict with cids list parameter
+                if cid_val not in batch_cids: continue
+                iso_smiles = prop_entry.get('IsomericSMILES'); can_smiles = prop_entry.get('CanonicalSMILES')
                 valid_smiles = iso_smiles if iso_smiles and iso_smiles.lower() != 'n/a' else can_smiles if can_smiles and can_smiles.lower() != 'n/a' else None
-                if valid_smiles: cid_smiles_map[cid] = valid_smiles; props_found_in_batch += 1
+                if valid_smiles: cid_smiles_map[cid_val] = valid_smiles; props_found_in_batch += 1
             if props_found_in_batch < len(batch_cids):
-                 missing_count = len(batch_cids) - props_found_in_batch
-                 logger.warning(f"Missing SMILES properties for {missing_count} CIDs in batch {batch_num}.")
-                 # Could add to warnings list if needed on client side
+                 missing_count = len(batch_cids) - props_found_in_batch; logger.warning(f"Missing SMILES properties for {missing_count} CIDs in batch {batch_num}.")
         else:
-            logger.warning(f"Unexpected response structure for SMILES batch {batch_num}. Data: {str(data)[:200]}")
-            warnings.append(f"Unexpected response structure for SMILES batch {batch_num}")
-            fetch_errors += len(batch_cids)
-
+            logger.warning(f"Unexpected response structure for SMILES batch {batch_num}. Data: {str(data)[:200]}"); warnings.append(f"Unexpected response structure for SMILES batch {batch_num}"); fetch_errors += len(batch_cids)
     num_missing = len(cids) - len(cid_smiles_map)
     if num_missing > 0:
-        miss_msg = f"Could not retrieve valid SMILES for {num_missing} out of {len(cids)} CIDs."
-        logger.warning(miss_msg)
-        warnings.append(miss_msg)
-
+        miss_msg = f"Could not retrieve valid SMILES for {num_missing} out of {len(cids)} CIDs."; logger.warning(miss_msg); warnings.append(miss_msg)
     warning_message = "; ".join(warnings) if warnings else None
     report_progress(f"Finished fetching SMILES. Retrieved for {len(cid_smiles_map)}/{len(cids)} CIDs.")
     return cid_smiles_map, warning_message
 
 
-# --- NMR Filtering Logic (Depends on fetch_smiles_batch and NMR Helpers) ---
-# *** THIS FUNCTION MUST COME *AFTER* THE NMR HELPER DEFINITIONS ***
+# --- NMR Filtering Logic ---
 def filter_candidates_by_nmr(
     candidate_cids: List[int],
     required_signals: Optional[int],
     required_ratio: Optional[List[int]],
-    # *** ADD progress_callback argument ***
     progress_callback: Optional[Callable[[str], None]] = None
 ) -> Tuple[List[int], Optional[str]]:
     """
     Filters candidates by NMR using batch SMILES fetching, reporting progress.
+    (FBN) = Filter By NMR
     """
+    # *** DEBUGGING: report_progress for filter_candidates_by_nmr ***
     def report_progress(message: str):
-        """Helper to log and call callback if available."""
-        logger.info(message)
+        logger.info(f"CORE_LOGIC (FBN): {message}")
+        print(f"CORE_LOGIC PRINT (FBN): progress_callback is {'SET' if progress_callback else 'NOT SET'}")
         if progress_callback:
-            try: progress_callback(message)
-            except Exception as e: logger.warning(f"Progress callback failed: {e}")
+            print(f"CORE_LOGIC PRINT (FBN): CALLING progress_callback with: {message[:100]}...") # Truncate
+            try:
+                progress_callback(message)
+            except Exception as e:
+                 logger.warning(f"Progress callback failed for message (FBN) '{message[:50]}...': {e}")
+                 print(f"CORE_LOGIC PRINT (FBN): progress_callback FAILED: {e}")
+        else:
+            print(f"CORE_LOGIC PRINT (FBN): progress_callback SKIPPED for: {message[:100]}...") # Truncate
 
-    if not RDKIT_AVAILABLE: return candidate_cids, "Skipping NMR filtering (RDKit not available)."
-    if required_signals is None and required_ratio is None: return candidate_cids, None
-    if not candidate_cids: return [], None
+    if not RDKIT_AVAILABLE: report_progress("Skipping NMR filtering (RDKit not available)."); return candidate_cids, "Skipping NMR filtering (RDKit not available)."
+    if required_signals is None and required_ratio is None: report_progress("Skipping NMR: No constraints."); return candidate_cids, None
+    if not candidate_cids: report_progress("Skipping NMR: No candidates."); return [], None
 
     report_progress(f"Starting NMR filtering for {len(candidate_cids)} candidates...")
     report_progress(f"(Required Signals: {required_signals if required_signals is not None else 'Any'}, Required Ratio: {required_ratio if required_ratio else 'Any'})")
 
-    # Step 3a: Fetch SMILES (will report its own progress via callback)
     start_smiles_time = time.time()
+    # Pass the *original* progress_callback from app.py down to fetch_smiles_batch
     cid_smiles_map, smiles_warning = fetch_smiles_batch(candidate_cids, progress_callback=progress_callback)
     end_smiles_time = time.time()
     report_progress(f"SMILES fetching step took {end_smiles_time - start_smiles_time:.2f}s.")
 
     if not cid_smiles_map:
         msg = "Cannot perform NMR filtering: No valid SMILES obtained."
-        report_progress(msg)
-        # Pass smiles_warning back if it exists
-        return [], smiles_warning
+        report_progress(msg); return [], smiles_warning
 
-    # Step 3b: Filter by NMR properties
     report_progress(f"Processing {len(cid_smiles_map)} compounds with SMILES for NMR properties...")
-    final_cids = []
-    processed_count = 0
-    skipped_nmr = 0
-    start_filter_time = time.time()
+    final_cids_list = [] # Renamed to avoid conflict
+    processed_count = 0; skipped_nmr = 0; start_filter_time = time.time()
     total_to_filter = len(cid_smiles_map)
 
-    for cid, smiles in cid_smiles_map.items():
+    for cid_val, smiles in cid_smiles_map.items(): # Renamed cid to cid_val
         processed_count += 1
-        # Log progress less frequently for performance if many compounds
         if processed_count % 500 == 1 or processed_count == total_to_filter:
              elapsed = time.time() - start_filter_time
              report_progress(f"  NMR Filter Progress: {processed_count}/{total_to_filter} compounds processed ({elapsed:.1f}s)...")
-
-        # --- Get NMR prediction ---
-        # get_hydrogen_environments logs concise debug messages internally now
         num_signals, integrations_dict = get_hydrogen_environments(smiles)
-
-        if num_signals is None: # Indicates prediction error
-            skipped_nmr += 1
-            continue # Skip this compound
-
-        # --- Apply Filters ---
-        # 1. Signal Count Filter
-        if required_signals is not None and num_signals != required_signals:
-            continue # Doesn't match signal count requirement
-
-        # 2. Ratio Filter
+        if num_signals is None: skipped_nmr += 1; continue
+        if required_signals is not None and num_signals != required_signals: continue
         if required_ratio is not None:
             predicted_ratio = calculate_predicted_ratio(integrations_dict)
-            # Ratio prediction could fail (None), or might not match
-            if predicted_ratio is None or predicted_ratio != required_ratio:
-                continue # Doesn't match ratio requirement or prediction failed
-
-        # If we reach here, the compound passed all NMR checks
-        final_cids.append(cid)
-
+            if predicted_ratio is None or predicted_ratio != required_ratio: continue
+        final_cids_list.append(cid_val) # Use renamed variable
     end_filter_time = time.time()
     report_progress(f"NMR property calculation & filtering took {end_filter_time - start_filter_time:.2f}s.")
-
-    # --- Compile Warnings ---
-    filter_warnings = []
+    filter_warnings = [];
     if smiles_warning: filter_warnings.append(smiles_warning)
     if skipped_nmr > 0:
         skip_msg = f"Skipped {skipped_nmr} compounds due to NMR prediction errors during filtering."
-        report_progress(skip_msg) # Report this summary via callback
-        filter_warnings.append(skip_msg)
+        report_progress(skip_msg); filter_warnings.append(skip_msg)
     final_warning_msg = "; ".join(filter_warnings) if filter_warnings else None
+    report_progress(f"Finished NMR filtering. {len(final_cids_list)} compounds matched criteria.")
+    return final_cids_list, final_warning_msg
 
-    report_progress(f"Finished NMR filtering. {len(final_cids)} compounds matched criteria.")
-    return final_cids, final_warning_msg
 
-
-# --- Detail Fetching (Depends on run_pubchem_search and format_nmr_prediction) ---
-# *** THIS FUNCTION MUST COME *AFTER* format_nmr_prediction DEFINITION ***
-# (No progress callback needed here as it's relatively quick and done after main search)
+# --- Detail Fetching ---
 def fetch_compound_details(
     cids: List[int],
     detail_image_width: int,
     detail_image_height: int
     ) -> Dict[int, Dict[str, Any]]:
-    """Fetches details (properties, description, links, NMR prediction) for a list of CIDs."""
     if not cids: return {}
     logger.info(f"Fetching details for top {len(cids)} compound(s)...")
-    compound_data = {cid: {} for cid in cids} # Pre-initialize
-
-    # --- Batch Fetch Properties ---
+    compound_data = {cid: {} for cid in cids}
     properties_to_fetch = ["Title", "IUPACName", "IsomericSMILES", "InChI", "InChIKey"]
     cids_str = ','.join(map(str, cids))
     props_url = f"{BASE_URL}/compound/cid/{cids_str}/property/{','.join(properties_to_fetch)}/JSON"
     props_data = run_pubchem_search(props_url)
-
     if props_data and 'PropertyTable' in props_data and 'Properties' in props_data['PropertyTable']:
         props_found = 0
         for prop_entry in props_data['PropertyTable']['Properties']:
-            cid = prop_entry.get('CID')
-            if cid in compound_data:
-                compound_data[cid].update(prop_entry)
-                props_found += 1
+            cid_val = prop_entry.get('CID') # Renamed
+            if cid_val in compound_data: compound_data[cid_val].update(prop_entry); props_found += 1
         logger.info(f"Fetched properties for {props_found}/{len(cids)} CIDs.")
-    elif '_error_status' in props_data:
-        logger.warning(f"Could not fetch properties for details: {props_data.get('_error_message')}")
-    else:
-        logger.warning("Could not parse properties response for details.")
-
-    # --- Batch Fetch Descriptions ---
-    desc_url = f"{BASE_URL}/compound/cid/{cids_str}/description/JSON"
-    desc_data = run_pubchem_search(desc_url)
+    elif '_error_status' in props_data: logger.warning(f"Could not fetch properties for details: {props_data.get('_error_message')}")
+    else: logger.warning("Could not parse properties response for details.")
+    desc_url = f"{BASE_URL}/compound/cid/{cids_str}/description/JSON"; desc_data = run_pubchem_search(desc_url)
     if desc_data and 'InformationList' in desc_data and 'Information' in desc_data['InformationList']:
-        desc_found = 0
-        # Find the first valid description per CID (often multiple sources exist)
-        processed_cids_desc = set()
+        desc_found = 0; processed_cids_desc = set()
         for info in desc_data['InformationList']['Information']:
-            cid = info.get('CID')
-            description = info.get('Description')
-            if cid in compound_data and description and cid not in processed_cids_desc:
-                compound_data[cid]['Description'] = description
-                processed_cids_desc.add(cid)
-                desc_found += 1
+            cid_val = info.get('CID'); description = info.get('Description') # Renamed
+            if cid_val in compound_data and description and cid_val not in processed_cids_desc:
+                compound_data[cid_val]['Description'] = description; processed_cids_desc.add(cid_val); desc_found += 1
         logger.info(f"Fetched descriptions for {desc_found}/{len(cids)} CIDs.")
-    elif '_error_status' in desc_data:
-        logger.warning(f"Could not fetch descriptions for details: {desc_data.get('_error_message')}")
-    else:
-        logger.warning("Could not parse descriptions response for details.")
-
-
-    # --- Add Links and Predict NMR ---
+    elif '_error_status' in desc_data: logger.warning(f"Could not fetch descriptions for details: {desc_data.get('_error_message')}")
+    else: logger.warning("Could not parse descriptions response for details.")
     logger.info("Adding links and predicting NMR for detailed display...")
     nmr_predictions_done = 0
-    for cid in cids:
-        if cid in compound_data:
-            # Add links
-            compound_data[cid]['PubChemLink'] = f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}"
-            compound_data[cid]['ImageLink'] = f"https://pubchem.ncbi.nlm.nih.gov/image/imagefly.cgi?cid={cid}&width={detail_image_width}&height={detail_image_height}"
-
-            # Predict NMR (using SMILES fetched in properties)
-            smiles = compound_data[cid].get('IsomericSMILES')
+    for cid_val in cids: # Renamed
+        if cid_val in compound_data:
+            compound_data[cid_val]['PubChemLink'] = f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid_val}"
+            compound_data[cid_val]['ImageLink'] = f"https://pubchem.ncbi.nlm.nih.gov/image/imagefly.cgi?cid={cid_val}&width={detail_image_width}&height={detail_image_height}"
+            smiles = compound_data[cid_val].get('IsomericSMILES')
             if RDKIT_AVAILABLE and smiles and smiles.lower() != 'n/a':
                  signals, integrations = get_hydrogen_environments(smiles)
-                 compound_data[cid]['PredictedNMR'] = format_nmr_prediction(signals, integrations)
+                 compound_data[cid_val]['PredictedNMR'] = format_nmr_prediction(signals, integrations)
                  if signals is not None: nmr_predictions_done += 1
-            elif not RDKIT_AVAILABLE:
-                 compound_data[cid]['PredictedNMR'] = "N/A (RDKit Missing)"
-            else:
-                 compound_data[cid]['PredictedNMR'] = "N/A (No SMILES)"
-        else:
-            # This shouldn't happen if compound_data was initialized correctly
-             logger.warning(f"CID {cid} missing from compound_data during detail processing.")
-
+            elif not RDKIT_AVAILABLE: compound_data[cid_val]['PredictedNMR'] = "N/A (RDKit Missing)"
+            else: compound_data[cid_val]['PredictedNMR'] = "N/A (No SMILES)"
+        else: logger.warning(f"CID {cid_val} missing from compound_data during detail processing.")
     logger.info(f"Predicted NMR for {nmr_predictions_done}/{len(cids)} compounds in details.")
     logger.info("Detail fetching complete.")
     return compound_data
