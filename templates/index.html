@@ -1,0 +1,99 @@
+{% extends "layout.html" %}
+
+{% block title %}Search for Isomers{% endblock %}
+
+{% block content %}
+
+{% if error %}
+    <div class="alert alert-danger" role="alert">
+        <strong>Error:</strong> {{ error }}
+    </div>
+{% endif %}
+{% if warning %}
+    <div class="alert alert-warning" role="alert">
+        <strong>Warning:</strong> {{ warning }}
+    </div>
+{% endif %}
+
+<form action="{{ url_for('search_results') }}" method="POST" id="search-form">
+    <h2>Search Criteria</h2>
+
+    <div class="mb-3">
+        <label for="formula" class="form-label">Molecular Formula *</label>
+        <input type="text" class="form-control" id="formula" name="formula" placeholder="e.g., C7H6O2" required value="{{ request.form.get('formula', '') }}">
+        <div class="form-text">Enter the exact molecular formula. Case-insensitive usually okay (e.g., c7h6o2).</div>
+    </div>
+
+    <hr class="my-4">
+
+    <div class="mb-4">
+        <h3>Structural Constraints (Optional)</h3>
+        <p class="form-text">Select functional groups or structural features that MUST be present.</p>
+        <div class="row row-cols-1 row-cols-md-2 g-3">
+            {% for category, items in categories.items()|sort %}
+            <div class="col">
+                <fieldset class="constraint-category">
+                    <legend>{{ category }}</legend>
+                    {% for item in items %}
+                    <div class="form-check constraint-item">
+                        <input class="form-check-input" type="checkbox" value="{{ item.key }}" id="constraint-{{ item.key }}" name="structural_constraints"
+                               {% if item.key in (request.form.getlist('structural_constraints') or []) %}checked{% endif %}>
+                        <label class="form-check-label" for="constraint-{{ item.key }}" title="{{ item.desc }}">
+                            {{ item.name }} (<code>{{ item.key }}</code>)
+                        </label>
+                    </div>
+                    {% endfor %}
+                </fieldset>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+     <hr class="my-4">
+
+    <div class="mb-4">
+        <h3>H NMR Constraints (Optional)</h3>
+        {% if not rdkit_available %}
+            <p class="text-muted"><i>(RDKit library not found - NMR features disabled)</i></p>
+        {% else %}
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="nmr_signals" class="form-label">Required Number of Signals</label>
+                    <input type="number" class="form-control" id="nmr_signals" name="nmr_signals" min="0" placeholder="e.g., 3" value="{{ request.form.get('nmr_signals', '') }}">
+                </div>
+                <div class="col-md-6">
+                    <label for="nmr_ratio" class="form-label">Required Simplified Ratio</label>
+                    <input type="text" class="form-control" id="nmr_ratio" name="nmr_ratio" placeholder="e.g., 3:2:1 or 1:3" value="{{ request.form.get('nmr_ratio', '') }}">
+                     <div class="form-text">Enter integers separated by colons. Order doesn't matter (e.g., 1:3 is same as 3:1).</div>
+                </div>
+            </div>
+         {% endif %}
+    </div>
+
+    <hr class="my-4">
+
+    <div class="d-grid gap-2">
+        <button type="submit" class="btn btn-primary btn-lg">Search for Isomers</button>
+    </div>
+</form>
+
+<!-- Simple loading indicator -->
+<div id="loading" class="loading-indicator">
+   <div class="spinner-border" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <p class="mt-2">Searching PubChem and processing results... This may take a moment.</p>
+</div>
+
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+    // Show loading indicator on form submission
+    document.getElementById('search-form').addEventListener('submit', function() {
+        document.getElementById('loading').style.display = 'block';
+        // Disable button to prevent double submission? Optional.
+         // this.querySelector('button[type="submit"]').disabled = true;
+    });
+</script>
+{% endblock %}

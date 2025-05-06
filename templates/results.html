@@ -1,0 +1,96 @@
+{% extends "layout.html" %}
+
+{% block title %}Search Results{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2>Search Results</h2>
+    <a href="{{ url_for('index') }}" class="btn btn-secondary">&laquo; New Search</a>
+</div>
+
+<div class="card mb-4 results-summary">
+    <div class="card-body">
+        <h5 class="card-title">Search Parameters Used</h5>
+        <p><strong>Formula:</strong> {{ search_params.formula or 'N/A' }}</p>
+        <p><strong>Structural Constraints:</strong> {{ search_params.structure_keys|join(', ') if search_params.structure_keys else 'None' }}</p>
+        <p><strong>NMR Signals Constraint:</strong> {{ search_params.nmr_signals if search_params.nmr_signals is not none else 'None' }}</p>
+        <p><strong>NMR Ratio Constraint:</strong> {{ ':'.join(search_params.nmr_ratio|map('string')) if search_params.nmr_ratio else 'None' }}</p>
+    </div>
+</div>
+
+{% if error %}
+    <div class="alert alert-danger error-message" role="alert">
+        <strong>Error during search:</strong> {{ error }}
+    </div>
+
+{% elif final_cids is none or final_cids|length == 0 %}
+     <div class="alert alert-info" role="alert">
+         <strong>No compounds found</strong> matching all specified criteria.
+     </div>
+
+{% else %}
+    {# --- Results Found --- #}
+    <div class="alert alert-success" role="alert">
+        Found <strong>{{ final_cids|length }}</strong> compound(s) matching all criteria.
+    </div>
+
+    {% if detailed_results %}
+        <h3 class="mt-4">Details for the First {{ detailed_results|length }} Result(s)</h3>
+        {% for cid, details in detailed_results.items() %}
+            <div class="result-card">
+                <h3>{{ loop.index }}. {{ details.get('Title', 'N/A') }} (CID: {{ cid }})</h3>
+                <dl>
+                    <dt>IUPAC Name:</dt> <dd>{{ details.get('IUPACName', 'N/A') }}</dd>
+                    <dt>SMILES:</dt> <dd>{{ details.get('IsomericSMILES', 'N/A') }}</dd>
+                    <dt>InChIKey:</dt> <dd>{{ details.get('InChIKey', 'N/A') }}</dd>
+                    <dt>Predicted H NMR:</dt> <dd>{{ details.get('PredictedNMR', 'N/A') }}</dd>
+                    <dt>Description:</dt>
+                    <dd>
+                        {% if details.get('Description') %}
+                             {{ details.get('Description') | truncate(300) }} {# Truncate long descriptions #}
+                        {% else %}
+                             N/A
+                        {% endif %}
+                    </dd>
+                    <dt>PubChem Link:</dt> <dd><a href="{{ details.get('PubChemLink', '#') }}" target="_blank" rel="noopener noreferrer">{{ details.get('PubChemLink', 'N/A') }}</a></dd>
+                    <dt>2D Structure:</dt>
+                    <dd>
+                        {% if details.get('ImageLink') %}
+                             <a href="{{ details.get('ImageLink', '#') }}" target="_blank" rel="noopener noreferrer">
+                                 <img src="{{ details.get('ImageLink') }}" alt="Structure of CID {{ cid }}" loading="lazy">
+                             </a>
+                        {% else %}
+                            N/A
+                        {% endif %}
+                    </dd>
+                </dl>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    {# --- Summary CID List --- #}
+    <h3 class="mt-4">Full List of Matching CIDs ({{ final_cids|length }} total)</h3>
+    {% if final_cids|length > max_cids_summary %}
+        <p class="text-muted">(Showing first and last {{ max_cids_summary // 2 }}, total {{ final_cids|length }})</p>
+        <div class="cid-list">
+             {{ final_cids[:max_cids_summary // 2]|join(', ') }}
+             <br>...<br>
+             {{ final_cids[-(max_cids_summary // 2):]|join(', ') }}
+        </div>
+        {# Add button/link to show all later if needed #}
+
+    {% else %}
+         <div class="cid-list">
+             {{ final_cids|join(', ') }}
+         </div>
+    {% endif %}
+
+{% endif %} {# End of results found block #}
+
+<div class="mt-4 text-center">
+     <a href="{{ url_for('index') }}" class="btn btn-secondary">&laquo; Perform Another Search</a>
+</div>
+
+
+{% endblock %}

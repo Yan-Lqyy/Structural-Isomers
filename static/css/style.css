@@ -1,0 +1,149 @@
+/* static/css/style.css */
+body {
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+    background-color: #f8f9fa; /* Light background */
+}
+
+.container {
+    max-width: 960px;
+    background-color: #ffffff; /* White background for content */
+    padding: 2rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1); /* Subtle shadow */
+}
+
+h1, h2, h3 {
+    color: #343a40; /* Darker headings */
+    margin-bottom: 1.5rem;
+}
+
+.form-label {
+    font-weight: 500;
+}
+
+.constraint-category {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    border: 1px solid #dee2e6;
+    border-radius: 0.3rem;
+    background-color: #fdfdfd;
+}
+
+.constraint-category legend {
+    font-weight: bold;
+    padding: 0 0.5rem;
+    width: auto; /* Necessary for fieldset legend */
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+}
+
+.constraint-item {
+    margin-bottom: 0.5rem;
+    font-size: 0.95rem;
+}
+.constraint-item label {
+    margin-left: 0.3rem;
+}
+
+
+.results-summary p {
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+}
+
+.result-card {
+    border: 1px solid #dee2e6;
+    border-radius: 0.3rem;
+    margin-bottom: 1.5rem;
+    padding: 1.2rem;
+    background-color: #fff;
+}
+
+.result-card h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    font-size: 1.4rem;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 0.5rem;
+}
+
+.result-card dt {
+    font-weight: bold;
+    color: #555;
+    min-width: 130px; /* Align definition terms */
+}
+.result-card dd {
+    margin-left: 140px; /* Align definition descriptions */
+    margin-bottom: 0.6rem;
+    word-wrap: break-word; /* Wrap long strings like InChI */
+}
+
+.result-card img {
+    display: block;
+    margin-top: 0.5rem;
+    border: 1px solid #eee;
+    max-width: 100%; /* Ensure image fits card */
+    height: auto;
+}
+
+
+.cid-list {
+    font-family: monospace;
+    font-size: 0.9rem;
+    word-break: break-all;
+    background-color: #e9ecef;
+    padding: 0.8rem;
+    border-radius: 0.25rem;
+    max-height: 200px; /* Limit height */
+    overflow-y: auto; /* Add scrollbar if needed */
+}
+
+.error-message {
+    color: #dc3545; /* Red for errors */
+    font-weight: bold;
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid #f5c6cb;
+    background-color: #f8d7da;
+    border-radius: 0.25rem;
+}
+
+.warning-message {
+    color: #ffc107; /* Yellow for warnings */
+    font-weight: bold;
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid #ffeeba;
+    background-color: #fff3cd;
+    border-radius: 0.25rem;
+}
+
+.loading-indicator {
+    display: none; /* Hidden by default */
+    text-align: center;
+    margin-top: 2rem;
+    font-size: 1.2rem;
+    color: #007bff;
+}
+.spinner-border {
+     width: 3rem;
+     height: 3rem;
+}
+
+/* Smaller font size for description details */
+.description-source {
+    font-size: 0.85em;
+    color: #6c757d;
+}
+
+/* Align property names and values */
+dl {
+    display: grid;
+    grid-template-columns: max-content auto; /* Label width based on content, value takes rest */
+    gap: 0.5rem 1rem; /* Row gap, column gap */
+}
+
+dd {
+    margin-left: 0; /* Override default browser margin */
+}
