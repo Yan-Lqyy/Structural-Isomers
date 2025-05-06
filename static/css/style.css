@@ -3,39 +3,51 @@ body {
     padding-top: 1rem;
     padding-bottom: 1rem;
     background-color: #f8f9fa; /* Light background */
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* A slightly more modern font stack */
 }
 
 .container {
-    max-width: 960px;
+    max-width: 960px; /* Or 1140px for wider content */
     background-color: #ffffff; /* White background for content */
     padding: 2rem;
     border-radius: 0.5rem;
     box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1); /* Subtle shadow */
 }
 
-h1, h2, h3 {
+h1, h2, h3, h4, h5, h6 { /* Apply to all headings */
     color: #343a40; /* Darker headings */
-    margin-bottom: 1.5rem;
+    margin-bottom: 1.25rem; /* Consistent bottom margin */
+    font-weight: 500; /* Slightly less bold for a cleaner look */
 }
+h1 { font-size: 2.25rem; }
+h2 { font-size: 1.75rem; }
+h3 { font-size: 1.5rem; }
+
 
 .form-label {
-    font-weight: 500;
+    font-weight: 500; /* Bootstrap default is often bold, this is fine */
 }
+.form-text {
+    font-size: 0.875em; /* Standard Bootstrap form text size */
+    color: #6c757d; /* Bootstrap muted text color */
+}
+
 
 .constraint-category {
     margin-bottom: 1.5rem;
-    padding: 1rem;
-    border: 1px solid #dee2e6;
-    border-radius: 0.3rem;
-    background-color: #fdfdfd;
+    padding: 1rem 1.25rem; /* Slightly more padding */
+    border: 1px solid #dee2e6; /* Bootstrap default border color */
+    border-radius: 0.375rem; /* Bootstrap default border radius */
+    background-color: #fdfdfd; /* Very light grey */
 }
 
 .constraint-category legend {
-    font-weight: bold;
+    font-weight: 600; /* Bolder legend */
     padding: 0 0.5rem;
     width: auto; /* Necessary for fieldset legend */
-    font-size: 1.1rem;
-    margin-bottom: 0.5rem;
+    font-size: 1.1rem; /* Slightly larger legend */
+    margin-bottom: 0.75rem; /* More space below legend */
+    color: #495057; /* Slightly darker legend text */
 }
 
 .constraint-item {
@@ -44,20 +56,38 @@ h1, h2, h3 {
 }
 .constraint-item label {
     margin-left: 0.3rem;
+    font-weight: normal; /* Ensure labels are not overly bold */
+    cursor: pointer; /* Indicate clickable */
+}
+.constraint-item code {
+    font-size: 0.85em;
+    color: #d63384; /* Bootstrap pink for code */
+    background-color: #f8f9fa;
+    padding: 0.1em 0.3em;
+    border-radius: 0.2rem;
 }
 
 
+/* Results Page Specific Styles */
+.results-summary .card-title {
+    margin-bottom: 1rem;
+}
 .results-summary p {
-    font-size: 1.1rem;
+    font-size: 1rem; /* Standard paragraph size */
     margin-bottom: 0.5rem;
 }
+.results-summary dl.row dt { /* For parameters display */
+    font-weight: 500;
+}
+
 
 .result-card {
-    border: 1px solid #dee2e6;
-    border-radius: 0.3rem;
+    border: 1px solid #e9ecef; /* Lighter border */
+    border-radius: 0.375rem;
     margin-bottom: 1.5rem;
-    padding: 1.2rem;
+    padding: 1.5rem; /* More padding inside card */
     background-color: #fff;
+    box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075); /* Softer shadow */
 }
 
 .result-card h3 {
@@ -65,111 +95,105 @@ h1, h2, h3 {
     margin-bottom: 1rem;
     font-size: 1.4rem;
     border-bottom: 1px solid #eee;
-    padding-bottom: 0.5rem;
+    padding-bottom: 0.75rem; /* More padding under heading */
 }
 
-.result-card dt {
-    font-weight: bold;
-    color: #555;
-    min-width: 130px; /* Align definition terms */
+/* Using Bootstrap's dl structure for result details */
+.result-card dl dt {
+    font-weight: 500; /* Bootstrap's default is often bold, this is fine */
+    color: #495057; /* Dark grey for terms */
+    /* Removed min-width, rely on Bootstrap grid or flex for alignment if needed */
 }
-.result-card dd {
-    margin-left: 140px; /* Align definition descriptions */
-    margin-bottom: 0.6rem;
-    word-wrap: break-word; /* Wrap long strings like InChI */
+.result-card dl dd {
+    /* margin-left: 0; /* Bootstrap dl usually handles this with col-sm-X */
+    margin-bottom: 0.75rem; /* More space between dd items */
+    word-wrap: break-word;
+    color: #212529; /* Standard text color */
 }
 
 .result-card img {
-    display: block;
+    /* display: block; /* Bootstrap img-fluid handles this */
     margin-top: 0.5rem;
-    border: 1px solid #eee;
-    max-width: 100%; /* Ensure image fits card */
+    border: 1px solid #dee2e6; /* Standard border */
+    max-width: 100%;
     height: auto;
+    border-radius: 0.25rem; /* Rounded corners for images */
 }
 
 
 .cid-list {
-    font-family: monospace;
+    font-family: 'SFMono-Regular', Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 0.9rem;
     word-break: break-all;
-    background-color: #e9ecef;
-    padding: 0.8rem;
-    border-radius: 0.25rem;
-    max-height: 200px; /* Limit height */
-    overflow-y: auto; /* Add scrollbar if needed */
+    background-color: #e9ecef; /* Bootstrap light background */
+    padding: 1rem; /* More padding */
+    border-radius: 0.375rem;
+    max-height: 250px; /* Slightly more height */
+    overflow-y: auto;
+    line-height: 1.6; /* Better readability for list */
+}
+.cid-list a {
+    color: #0d6efd; /* Bootstrap primary link color */
+    text-decoration: none;
+}
+.cid-list a:hover {
+    text-decoration: underline;
 }
 
-.error-message {
-    color: #dc3545; /* Red for errors */
-    font-weight: bold;
-    margin-top: 1rem;
-    padding: 1rem;
-    border: 1px solid #f5c6cb;
-    background-color: #f8d7da;
-    border-radius: 0.25rem;
-}
 
-.warning-message {
-    color: #ffc107; /* Yellow for warnings */
-    font-weight: bold;
-    margin-top: 1rem;
-    padding: 1rem;
-    border: 1px solid #ffeeba;
-    background-color: #fff3cd;
-    border-radius: 0.25rem;
+.error-message, .warning-message { /* These are Bootstrap alert classes, should be styled by BS */
+    /* Customizations if needed, but usually rely on .alert-danger, .alert-warning */
+    font-weight: 500; /* Slightly bolder text in alerts */
 }
+/* warning-message from layout.html already uses .alert .alert-warning */
 
-.loading-indicator {
-    display: none; /* Hidden by default */
+
+.loading-indicator { /* For search progress bar on index.html */
+    /* display: none; Hidden by default, JS controls */
     text-align: center;
     margin-top: 2rem;
     font-size: 1.2rem;
-    color: #007bff;
+    color: #0d6efd; /* Bootstrap primary color */
 }
-.spinner-border {
-     width: 3rem;
-     height: 3rem;
+.spinner-border { /* Used by Bootstrap */
+     /* width: 3rem; */
+     /* height: 3rem; */
+     /* Bootstrap default sizes are usually fine */
 }
 
-/* Smaller font size for description details */
-.description-source {
+.description-source { /* If used for specific source styling */
     font-size: 0.85em;
-    color: #6c757d;
+    color: #6c757d; /* Bootstrap muted text */
 }
 
-/* Align property names and values */
-dl {
-    display: grid;
-    grid-template-columns: max-content auto; /* Label width based on content, value takes rest */
-    gap: 0.5rem 1rem; /* Row gap, column gap */
-}
-
-dd {
-    margin-left: 0; /* Override default browser margin */
-}
-
+/* Progress Log on index.html (if these are still used beyond Bootstrap list-group) */
 .progress-log {
-    max-height: 300px; /* Limit height of progress log */
-    overflow-y: auto;   /* Add scrollbar */
+    max-height: 300px;
+    overflow-y: auto;
     font-size: 0.9rem;
     border: 1px solid #dee2e6;
     margin-top: 1rem;
-    background-color: #f8f9fa; /* Light background for log */
+    background-color: #f8f9fa;
+    border-radius: 0.25rem; /* Bootstrap default */
 }
-
 .progress-message {
     padding: 0.4rem 0.8rem;
-    border-bottom: 1px solid #eee; /* Separator lines */
+    border-bottom: 1px solid #eee;
 }
 .progress-message:last-child {
     border-bottom: none;
 }
-
-.progress-error {
+.progress-error { /* For text within a progress message that's an error */
     font-weight: bold;
+    color: #dc3545; /* Bootstrap danger color */
 }
 
-/* Adjust spacing if needed */
-#progress-container h4 {
-    margin-bottom: 0.5rem;
+/* Ensure progress bar text is visible - Bootstrap generally handles this well */
+.progress-bar {
+    color: #fff;
+    /* text-shadow: 1px 1px 1px rgba(0,0,0,0.2); /* Softer shadow */
+}
+.bg-warning .progress-bar { /* For yellow progress bar */
+    color: #000; /* Dark text on light warning background */
+    text-shadow: none;
 }

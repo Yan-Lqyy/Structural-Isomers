@@ -6,15 +6,15 @@
     <title>{% block title %}PubChem Isomer Finder{% endblock %}</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
-    <!-- Optional Custom CSS -->
+    <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     {% block head_extra %}{% endblock %}
   </head>
   <body>
-    <div class="container mt-4">
+    <div class="container mt-4 mb-5"> {# Added mb-5 for more space at bottom #}
         <header class="mb-4">
             <h1>{% block header %}PubChem Structural Isomer Finder{% endblock %}</h1>
-             <p class="lead">Find chemical compounds matching molecular formula, structural features, and H NMR predictions.</p>
+             <p class="lead">Find chemical compounds matching molecular formula, structural features, and <sup>1</sup>H NMR predictions.</p>
              <hr>
         </header>
 
@@ -24,9 +24,9 @@
 
         <footer class="mt-5 text-muted text-center text-small">
             <hr>
-            <p>&copy; {{ now.year }} - Isomer Finder using PubChem PUG REST API & RDKit</p>
+            <p>&copy; {{ now.year }} - Isomer Finder (v{{ app_version }}) using PubChem PUG REST API & RDKit</p>
              {% if not rdkit_available %}
-                 <p class="warning-message">Warning: RDKit not found. NMR features are disabled.</p>
+                 <p class="alert alert-warning small">Warning: RDKit not found on the server. NMR-related features are disabled.</p>
              {% endif %}
         </footer>
     </div>

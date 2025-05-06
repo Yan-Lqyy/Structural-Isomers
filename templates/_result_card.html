@@ -1,0 +1,41 @@
+{# templates/_result_card.html - Renders a single result card #}
+{# Expects 'cid' and 'details' (dict) as context variables #}
+{# Also 'loop_index' if you want to number them #}
+<div class="result-card" id="result-card-{{ cid }}">
+    <h3>
+        {% if loop_index %}{{ loop_index }}. {% endif %}
+        {{ details.get('Title', 'N/A') }} (CID: <a href="https://pubchem.ncbi.nlm.nih.gov/compound/{{ cid }}" target="_blank" rel="noopener noreferrer">{{ cid }}</a>)
+    </h3>
+    <dl>
+        {% if details.get('MolecularFormula') %}
+            <dt>Formula:</dt> <dd>{{ details.get('MolecularFormula') }}</dd>
+        {% endif %}
+        {% if details.get('MolecularWeight') %}
+            <dt>Mol. Weight:</dt> <dd>{{ details.get('MolecularWeight') }}</dd>
+        {% endif %}
+        <dt>IUPAC Name:</dt> <dd>{{ details.get('IUPACName', 'N/A') }}</dd>
+        <dt>SMILES:</dt> <dd>{{ details.get('IsomericSMILES', details.get('CanonicalSMILES', 'N/A')) }}</dd>
+        <dt>InChIKey:</dt> <dd>{{ details.get('InChIKey', 'N/A') }}</dd>
+        <dt>Predicted <sup>1</sup>H NMR:</dt> <dd>{{ details.get('PredictedNMR', 'N/A') }}</dd>
+        {% if details.get('Description') %}
+        <dt>Description{% if details.get('DescriptionSourceName') %} ({{details.get('DescriptionSourceName')}}){% endif %}:</dt>
+        <dd>
+            {{ details.get('Description') | truncate(300, True, '...') }} {# True for whole words, '...' for end #}
+        </dd>
+        {% endif %}
+        <dt>PubChem Link:</dt> <dd><a href="{{ details.get('PubChemLink', '#') }}" target="_blank" rel="noopener noreferrer">View on PubChem</a></dd>
+        {% if details.get('ImageLink') %}
+        <dt>2D Structure:</dt>
+        <dd>
+            <a href="{{ details.get('ImageLink', '#') }}" target="_blank" rel="noopener noreferrer" title="View larger image for CID {{ cid }}">
+                <img src="{{ details.get('ImageLink') }}"
+                     alt="2D Structure of CID {{ cid }}"
+                     loading="lazy"
+                     width="{{ detail_image_width }}"
+                     height="{{ detail_image_height }}"
+                     class="img-fluid border rounded"> {# Bootstrap classes #}
+            </a>
+        </dd>
+        {% endif %}
+    </dl>
+</div>

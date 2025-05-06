@@ -3,20 +3,27 @@
 {% block title %}Search Results{% endblock %}
 
 {% block content %}
-
-{# ... (summary and parameters blocks unchanged) ... #}
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h2>Search Results</h2>
-    <a href="{{ url_for('index') }}" class="btn btn-secondary">« New Search</a>
+    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">« New Search</a>
 </div>
 
 <div class="card mb-4 results-summary">
     <div class="card-body">
         <h5 class="card-title">Search Parameters Used</h5>
-        <p><strong>Formula:</strong> {{ search_params.formula or 'N/A' }}</p>
-        <p><strong>Structural Constraints:</strong> {{ search_params.structure_keys|join(', ') if search_params.structure_keys else 'None' }}</p>
-        <p><strong>NMR Signals Constraint:</strong> {{ search_params.nmr_signals_str if search_params.nmr_signals_str else (search_params.nmr_signals if search_params.nmr_signals is not none else 'None') }}</p>
-        <p><strong>NMR Ratio Constraint:</strong> {{ search_params.nmr_ratio_str if search_params.nmr_ratio_str else (':'.join(search_params.nmr_ratio|map('string')) if search_params.nmr_ratio else 'None') }}</p>
+        <dl class="row">
+            <dt class="col-sm-4">Formula:</dt> 
+            <dd class="col-sm-8">{{ search_params.formula or 'N/A' }}</dd>
+
+            <dt class="col-sm-4">Structural Constraints:</dt>
+            <dd class="col-sm-8">{{ search_params.structure_keys|join(', ') if search_params.structure_keys else 'None' }}</dd>
+            
+            <dt class="col-sm-4">NMR Signals (Input):</dt>
+            <dd class="col-sm-8">{{ search_params.nmr_signals_str if search_params.nmr_signals_str else 'None' }}</dd>
+            
+            <dt class="col-sm-4">NMR Ratio (Input):</dt>
+            <dd class="col-sm-8">{{ search_params.nmr_ratio_str if search_params.nmr_ratio_str else 'None' }}</dd>
+        </dl>
     </div>
 </div>
 
@@ -25,86 +32,253 @@
         <strong>Warning:</strong> {{ warning }}
     </div>
 {% endif %}
+
 {% if error %}
     <div class="alert alert-danger error-message" role="alert">
-        <strong>Error during search/display:</strong> {{ error }}
+        <strong>Error during search or display:</strong> {{ error }}
     </div>
-
 {% elif total_found == 0 %}
      <div class="alert alert-info" role="alert">
          <strong>No compounds found</strong> matching all specified criteria.
      </div>
-
-{% else %}
+{% else %} {# Results were found #}
     <div class="alert alert-success" role="alert">
         Found <strong>{{ total_found }}</strong> compound(s) matching all criteria.
-        {% if total_found != final_cids|length and final_cids|length > 0 %}
-            (Showing details/list for the first {{ final_cids|length }}.)
-        {% elif not final_cids and total_found > 0 %}
-             (Result list was too long to display.)
+        {% if initial_display_count < total_found %}
+            Displaying initial {{ initial_display_count }} details.
+        {% elif initial_display_count == total_found and total_found > 0 %}
+            Displaying all {{ total_found }} details.
         {% endif %}
     </div>
 
-    {% if final_cids and detailed_results %}
-        <h3 class="mt-4">Details for the First {{ detailed_results|length }} Result(s)</h3>
-        {% for cid, details in detailed_results.items() %}
-            <div class="result-card">
-                <h3>{{ loop.index }}. {{ details.get('Title', 'N/A') }} (CID: {{ cid }})</h3>
-                <dl>
-                    <dt>IUPAC Name:</dt> <dd>{{ details.get('IUPACName', 'N/A') }}</dd>
-                    <dt>SMILES:</dt> <dd>{{ details.get('IsomericSMILES', 'N/A') }}</dd>
-                    <dt>InChIKey:</dt> <dd>{{ details.get('InChIKey', 'N/A') }}</dd>
-                    <dt>Predicted H NMR:</dt> <dd>{{ details.get('PredictedNMR', 'N/A') }}</dd>
-                    <dt>Description:</dt>
-                    <dd>
-                        {% if details.get('Description') %}
-                             {{ details.get('Description') | truncate(300) }}
-                        {% else %} N/A {% endif %}
-                    </dd>
-                    <dt>PubChem Link:</dt> <dd><a href="{{ details.get('PubChemLink', '#') }}" target="_blank" rel="noopener noreferrer">{{ details.get('PubChemLink', 'N/A') }}</a></dd>
-                    <dt>2D Structure:</dt>
-                    <dd>
-                        {% if details.get('ImageLink') %}
-                             <a href="{{ details.get('ImageLink', '#') }}" target="_blank" rel="noopener noreferrer">
-                                 {# *** ADD loading="lazy" HERE *** #}
-                                 <img src="{{ details.get('ImageLink') }}"
-                                      alt="Structure of CID {{ cid }}"
-                                      loading="lazy"
-                                      width="{{ DETAIL_IMAGE_WIDTH }}" {# Explicit width/height helps layout #}
-                                      height="{{ DETAIL_IMAGE_HEIGHT }}">
-                             </a>
-                        {% else %} N/A {% endif %}
-                    </dd>
-                </dl>
-            </div>
-        {% endfor %}
-    {% elif final_cids and not error %}
-         <p class="mt-4 text-muted">Details could not be loaded for the top results.</p>
+    {# Container for detailed results cards #}
+    <div id="detailed-results-container">
+        {% if initial_detailed_results %}
+            <h3 class="mt-4 mb-3">Detailed Results</h3>
+            {% for cid, details in initial_detailed_results.items() %}
+                {% include "_result_card.html" with context %} {# Pass current context #}
+            {% endfor %}
+        {% elif total_found > 0 and not error %}
+             <p class="mt-4 text-muted">Details for the first results could not be loaded. There might have been an issue fetching them.</p>
+        {% endif %}
+    </div>
+
+    {# "Load More" button area #}
+    {% if initial_display_count < total_found %}
+    <div id="load-more-container" class="text-center my-4">
+        <button id="load-more-button" class="btn btn-primary">Load More Results ({{ load_more_batch_size }} at a time)</button>
+        <div id="loading-more-indicator" style="display: none;" class="mt-2">
+            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+            Loading...
+        </div>
+    </div>
     {% endif %}
 
+
     {# --- Summary CID List --- #}
-     {% if final_cids %}
-        {# (CID list logic remains the same) #}
-        <h3 class="mt-4">Full List of Matching CIDs ({{ total_found }} total{% if total_found != final_cids|length %}, showing {{ final_cids|length }}{% endif %})</h3>
-        {% if final_cids|length > max_cids_summary %}
-            <p class="text-muted">(Showing first and last {{ max_cids_summary // 2 }})</p>
-            <div class="cid-list">
-                 {{ final_cids[:max_cids_summary // 2]|join(', ') }}
-                 <br>...<br>
-                 {{ final_cids[-(max_cids_summary // 2):]|join(', ') }}
+    {% set cids_list = [] %} {# Initialize as empty list #}
+    {% if all_cids_json %}
+        {% set cids_list = all_cids_json|fromjson %}
+    {% endif %}
+
+    {% if cids_list %}
+        <h3 class="mt-5 mb-3">
+            Full List of Matching CIDs ({{ total_found }} total{% if total_found != cids_list|length %}, showing {{ cids_list|length }} in list below{% endif %})
+        </h3>
+        {% if cids_list|length > max_cids_summary_list %}
+            <p class="text-muted">(Displaying first and last {{ max_cids_summary_list // 2 }} CIDs from the available list below. Full list contains {{ cids_list|length }} CIDs.)</p>
+            <div class="cid-list p-3 border rounded bg-light">
+                {% for cid in cids_list[:max_cids_summary_list // 2] %}
+                    <a href="https://pubchem.ncbi.nlm.nih.gov/compound/{{ cid }}" target="_blank" rel="noopener noreferrer">{{ cid }}</a>{% if not loop.last %}, {% endif %}
+                {% endfor %}
+                <br>... (list truncated for display) ...<br>
+                {% for cid in cids_list[-(max_cids_summary_list // 2):] %}
+                     <a href="https://pubchem.ncbi.nlm.nih.gov/compound/{{ cid }}" target="_blank" rel="noopener noreferrer">{{ cid }}</a>{% if not loop.last %}, {% endif %}
+                {% endfor %}
             </div>
         {% else %}
-             <div class="cid-list"> {{ final_cids|join(', ') }} </div>
+             <div class="cid-list p-3 border rounded bg-light">
+                {% for cid in cids_list %}
+                    <a href="https://pubchem.ncbi.nlm.nih.gov/compound/{{ cid }}" target="_blank" rel="noopener noreferrer">{{ cid }}</a>{% if not loop.last %}, {% endif %}
+                {% endfor %}
+             </div>
         {% endif %}
-     {% elif total_found > 0 %}
-          <h3 class="mt-4">List of Matching CIDs</h3>
-          <p class="text-danger">The list of {{ total_found }} CIDs was too long to be included in the URL.</p>
+     {% elif total_found > 0 and not error %}
+          <h3 class="mt-5 mb-3">List of Matching CIDs</h3>
+          <p class="text-danger">The list of {{ total_found }} CIDs could not be retrieved or displayed (e.g., may have been too long for URL transfer or an error occurred).</p>
      {% endif %}
 
-{% endif %} {# End of results found block #}
+{% endif %} {# End of main results found block #}
 
-<div class="mt-4 text-center">
+<div class="mt-5 text-center">
      <a href="{{ url_for('index') }}" class="btn btn-secondary">« Perform Another Search</a>
 </div>
 
+{% endblock %}
+
+{% block scripts_extra %}
+{% if total_found > 0 and initial_display_count < total_found %} {# Only include script if load more is possible #}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const allCidsFromServer = JSON.parse({{ all_cids_json|safe }});
+    let currentlyDisplayedCount = {{ initial_display_count }};
+    const totalFound = {{ total_found }};
+    const batchSize = {{ load_more_batch_size }};
+    const detailImageWidth = {{ detail_image_width }};
+    const detailImageHeight = {{ detail_image_height }};
+
+    const loadMoreButton = document.getElementById('load-more-button');
+    const loadingIndicator = document.getElementById('loading-more-indicator');
+    const resultsContainer = document.getElementById('detailed-results-container');
+    const loadMoreContainer = document.getElementById('load-more-container'); // To hide it when done
+
+    if (!loadMoreButton || !resultsContainer) {
+        console.warn("Load more button or results container not found. Load more disabled.");
+        if(loadMoreContainer) loadMoreContainer.style.display = 'none';
+        return;
+    }
+    
+    // Initially, if all are already shown (e.g. total_found <= initial_display_count)
+    if (currentlyDisplayedCount >= totalFound) {
+        if (loadMoreContainer) loadMoreContainer.style.display = 'none';
+    }
+
+
+    loadMoreButton.addEventListener('click', async function() {
+        loadMoreButton.disabled = true;
+        loadingIndicator.style.display = 'block';
+
+        const cidsToLoad = allCidsFromServer.slice(currentlyDisplayedCount, currentlyDisplayedCount + batchSize);
+
+        if (cidsToLoad.length === 0) {
+            loadingIndicator.style.display = 'none';
+            if (loadMoreContainer) loadMoreContainer.style.display = 'none'; // Hide button area
+            return;
+        }
+
+        try {
+            const response = await fetch(`{{ url_for('fetch_batch_details_ajax') }}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ cids: cidsToLoad })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ detail: "Unknown server error" }));
+                throw new Error(`Server error: ${response.status} - ${errorData.error || errorData.detail}`);
+            }
+
+            const newDetailsMap = await response.json();
+            
+            // It's important to render in the order of cidsToLoad for consistency
+            cidsToLoad.forEach(cid => {
+                const details = newDetailsMap[cid.toString()]; // AJAX returns keys as strings
+                if (details) {
+                    const cardHtml = createResultCardHtml(cid, details, currentlyDisplayedCount + 1);
+                    resultsContainer.insertAdjacentHTML('beforeend', cardHtml);
+                    currentlyDisplayedCount++;
+                } else {
+                    console.warn(`Details not found for CID ${cid} in batch response.`);
+                }
+            });
+            
+
+            if (currentlyDisplayedCount >= totalFound) {
+                if (loadMoreContainer) loadMoreContainer.style.display = 'none';
+            }
+
+        } catch (error) {
+            console.error("Error loading more results:", error);
+            // You could display an error message to the user here
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'alert alert-danger mt-2';
+            errorDiv.textContent = `Failed to load more results: ${error.message}`;
+            resultsContainer.appendChild(errorDiv);
+            if (loadMoreContainer) loadMoreContainer.style.display = 'none'; // Hide button on error to prevent retries
+        } finally {
+            loadMoreButton.disabled = false;
+            loadingIndicator.style.display = 'none';
+        }
+    });
+
+    function escapeHtml(unsafe) {
+        if (unsafe === null || unsafe === undefined) return 'N/A';
+        return unsafe.toString()
+             .replace(/&/g, "&amp;")
+             .replace(/</g, "&lt;")
+             .replace(/>/g, "&gt;")
+             .replace(/"/g, "&quot;")
+             .replace(/'/g, "&#039;");
+    }
+
+    function truncateText(text, maxLength = 300) {
+        if (!text || text.length <= maxLength) return escapeHtml(text);
+        let truncated = text.substring(0, maxLength);
+        // Try to cut at a word boundary
+        const lastSpace = truncated.lastIndexOf(' ');
+        if (lastSpace > maxLength / 2) { // Only cut at space if it's reasonably far
+            truncated = truncated.substring(0, lastSpace);
+        }
+        return escapeHtml(truncated) + "...";
+    }
+
+
+    function createResultCardHtml(cid, details, loopIndex) {
+        const title = escapeHtml(details.Title || 'N/A');
+        const pubChemLinkCompound = `https://pubchem.ncbi.nlm.nih.gov/compound/${cid}`;
+        const formula = escapeHtml(details.MolecularFormula);
+        const molWeight = escapeHtml(details.MolecularWeight);
+        const iupacName = escapeHtml(details.IUPACName);
+        const smiles = escapeHtml(details.IsomericSMILES || details.CanonicalSMILES || 'N/A');
+        constinchiKey = escapeHtml(details.InChIKey);
+        const predictedNMR = escapeHtml(details.PredictedNMR);
+        let descriptionHtml = '';
+        if (details.Description) {
+            const descSource = details.DescriptionSourceName ? ` (${escapeHtml(details.DescriptionSourceName)})` : '';
+            descriptionHtml = `
+                <dt>Description${descSource}:</dt>
+                <dd>${truncateText(details.Description)}</dd>`;
+        }
+        const pubChemLink = escapeHtml(details.PubChemLink);
+        let imageHtml = '';
+        if (details.ImageLink) {
+            imageHtml = `
+                <dt>2D Structure:</dt>
+                <dd>
+                    <a href="${escapeHtml(details.ImageLink)}" target="_blank" rel="noopener noreferrer" title="View larger image for CID ${cid}">
+                        <img src="${escapeHtml(details.ImageLink)}"
+                             alt="2D Structure of CID ${cid}"
+                             loading="lazy"
+                             width="${detailImageWidth}"
+                             height="${detailImageHeight}"
+                             class="img-fluid border rounded">
+                    </a>
+                </dd>`;
+        }
+
+        return `
+        <div class="result-card" id="result-card-${cid}">
+            <h3>
+                ${loopIndex ? loopIndex + '. ' : ''}
+                ${title} (CID: <a href="${pubChemLinkCompound}" target="_blank" rel="noopener noreferrer">${cid}</a>)
+            </h3>
+            <dl>
+                ${formula !== 'N/A' ? `<dt>Formula:</dt> <dd>${formula}</dd>` : ''}
+                ${molWeight !== 'N/A' ? `<dt>Mol. Weight:</dt> <dd>${molWeight}</dd>` : ''}
+                <dt>IUPAC Name:</dt> <dd>${iupacName}</dd>
+                <dt>SMILES:</dt> <dd>${smiles}</dd>
+                <dt>InChIKey:</dt> <dd>${inchiKey}</dd>
+                <dt>Predicted <sup>1</sup>H NMR:</dt> <dd>${predictedNMR}</dd>
+                ${descriptionHtml}
+                <dt>PubChem Link:</dt> <dd><a href="${pubChemLink}" target="_blank" rel="noopener noreferrer">View on PubChem</a></dd>
+                ${imageHtml}
+            </dl>
+        </div>`;
+    }
+});
+</script>
+{% endif %} {# End of script block for load more #}
 {% endblock %}
